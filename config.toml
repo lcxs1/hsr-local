@@ -96,8 +96,9 @@ unlock_all = true
 #   inplace = 同场景原地换组（逐实体 patch，4.7.0 客户端 NRE，仅 A/B）
 #   scene   = 不发 SyncServerSceneChangeNotify，直接推新 SceneInfo（A/B）
 #   client  = 只回战斗结果，等客户端自己发 StartChallenge（pearl 流程）
-# 2026-11-11 真机：sync 已能让上下半都进、都能开打；剩下的问题是下半战斗
-# 卡在进场动画（客户端重载 stage 之后立刻开打），declare 是绕开重载的对照。
+# 2026-11-11 真机：sync 已能让上下半都进、都能开打；剩下的问题是下半那场战斗
+# 卡在进场动画。declare 实测（23:46）不重载 stage，但客户端没有可攻击的怪，
+# 所以默认保持 sync。
 advance = "sync"
 # 大厅报哪些场景组（客户端按“已加载组”创建地图 NPC）。装饰组里有 4.6.54 客户端
 # 定义残缺的 MapNPC:227-400001，会把传送加载卡死，所以只报可交互展台。
