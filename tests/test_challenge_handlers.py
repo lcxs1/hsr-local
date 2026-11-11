@@ -872,6 +872,39 @@ class ChallengeHandlersTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(cast.HasField("battle_info"))
 
+    async def test_start_direct_can_enter_second_half_first(self) -> None:
+        """`/debug/challenge?second=1`：把下半当**第一场**战斗来打（真机探针）。
+
+        下半的战斗在“换半场之后”打不出来，用这个入口可以直接对比
+        「下半的战斗包」和「换半场那一下」哪个才是问题。
+        """
+        scene = challenge_service.start_direct(self.session, 1101, second=True)
+        self.assertIsNotNone(scene)
+        node2 = self.rt.endgame.challenge(1101).node2
+        self.assertEqual(self.session.challenge.index, 1)
+        self.assertEqual(self.session.challenge.stage_id, node2.stage_id)
+        self.assertEqual(scene.entry_id, node2.entrance_id)
+        self.assertIn(
+            node2.maze_group_id, [group.group_id for group in scene.entity_group_list]
+        )
+        self.assertEqual(self.sent, [])  # start_direct 只装配，发包子系统在调用方
+        cast = await scene_handlers.on_cast_skill(
+            self.session, pb.SceneCastSkillCsReq(cast_entity_id=1)
+        )
+        self.assertEqual(cast.battle_info.stage_id, node2.stage_id)
+        # 下半是最后一阶段：打赢就直接结算
+        self.sent.clear()
+        await battle_handlers.on_pve_result(
+            self.session,
+            pb.PVEBattleResultCsReq(
+                battle_id=cast.battle_info.battle_id,
+                stage_id=cast.battle_info.stage_id,
+                end_status=pb.BattleEndStatus.Value("BATTLE_END_WIN"),
+            ),
+        )
+        kinds = [type(message).__name__ for message in self.sent]
+        self.assertIn("ChallengeSettleNotify", kinds)
+
     async def test_direct_attempt_returns_to_world_after_settle(self) -> None:
         challenge_service.start_direct(self.session, 1)  # 单半层，直接结算
         battle = await scene_handlers.on_cast_skill(

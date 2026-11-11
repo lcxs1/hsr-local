@@ -440,13 +440,20 @@ def enter_tierce(
     return state, scene
 
 
-def start_direct(session, challenge_id: int) -> pb.SceneInfo | None:
+def start_direct(
+    session, challenge_id: int, *, second: bool = False
+) -> pb.SceneInfo | None:
     """Start a challenge without the 忘却之庭 lobby (debug / 模拟器入口).
 
     Mirrors pearl-sr's custom stage selection: the server is told the challenge
     id (``GET /debug/challenge?id=...``) and pushes the arena scene to the
     client.  Needed because the lobby floor hard-locks the 4.6.54 beta client
     (``MapNPC:* -400001`` has no ``ConfigEntityPath``).
+
+    ``second=True`` starts **directly on the 下半** (phase 2 arena, second team).
+    2026-11-11 真机探针：下半的战斗在“换半场之后”打不出来（卡在进战斗的动画），
+    用这个开关可以把下半当成**第一场**战斗来打，从而分清是“下半的战斗包不对”
+    还是“换半场那一下把客户端状态弄坏了”。
     """
     challenge = session.runtime.endgame.challenge(challenge_id)
     tierce_stage = session.runtime.endgame.tierce_stage(challenge_id)
@@ -468,14 +475,18 @@ def start_direct(session, challenge_id: int) -> pb.SceneInfo | None:
         challenge.id,
         avatars=team,
         first_avatars=team,
+        second=second,
     )
     state.direct = True
     session.runtime.logger.info(
-        "challenge direct start: id=%d (%s) stage=%d team=%s",
+        "challenge direct start: id=%d (%s) phase=%d/%d stage=%d group=%d team=%s",
         challenge.id,
         challenge.mode,
+        state.index + 1,
+        len(state.phases),
         state.stage_id,
-        team,
+        state.node.maze_group_id,
+        state.current.team,
     )
     return scene
 

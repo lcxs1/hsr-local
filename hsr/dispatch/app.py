@@ -225,8 +225,11 @@ def create_app(rt: Runtime) -> FastAPI:
     # challenge id 告诉服务端。这里用 HTTP 做同一件事：
     #   GET /debug/challenge            列出当前赛季的层和 challenge id
     #   GET /debug/challenge?id=5512    把玩家直接送进那一层的 arena
+    #   GET /debug/challenge?id=5501&second=1
+    #                                   直接进**下半**（第二队、node2 的 arena），
+    #                                   用来验证“下半的战斗本身能不能打”
     @app.get("/debug/challenge")
-    async def debug_challenge(id: int = 0):  # noqa: A002 - query parameter name
+    async def debug_challenge(id: int = 0, second: int = 0):  # noqa: A002
         from hsr.game.services import challenge as challenge_service
 
         sessions = rt.sessions()
@@ -250,7 +253,7 @@ def create_app(rt: Runtime) -> FastAPI:
                 "season": season.name if season else "",
                 "floors": [{"id": cid, "floor": floor} for cid, floor in floors],
             }
-        scene = challenge_service.start_direct(session, id)
+        scene = challenge_service.start_direct(session, id, second=bool(second))
         if scene is None:
             return JSONResponse(
                 {"ok": False, "error": f"unknown challenge {id}"}, status_code=404
@@ -293,11 +296,18 @@ def create_app(rt: Runtime) -> FastAPI:
             )
         )
         rt.logger.info(
-            "debug challenge: pushed arena for id=%d stage=%d", id, state.stage_id
+            "debug challenge: pushed arena for id=%d phase=%d/%d stage=%d group=%d",
+            id,
+            state.index + 1,
+            len(state.phases),
+            state.stage_id,
+            state.node.maze_group_id,
         )
         return {
             "ok": True,
             "challenge": id,
+            "phase": state.index + 1,
+            "group": state.node.maze_group_id,
             "stage": state.stage_id,
             "plane": scene.plane_id,
             "floor": scene.floor_id,

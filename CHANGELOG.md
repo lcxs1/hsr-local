@@ -4,6 +4,8 @@
 
 ## 2026-11-11
 
+- **下半战斗问题的两轮实验结论 + 新探针 `/debug/challenge?second=1`**：① `sync` 下下半**等 45 秒**再打仍卡（`battle stats turns=0 cost=9s`，同轮上半 `turns=1 cost=15s`）→ 不是加载竞态；② `advance=declare` 不重载 stage，但客户端**不发 `SceneCastSkill`** → `group_info` 声明出来的组里没有可攻击的怪。于是把变量切到战斗本身：`start_direct(..., second=True)` + `GET /debug/challenge?id=5501&second=1` 直接把下半当第一场战斗打，用来分辨“下半战斗包不对”还是“换半场把客户端状态弄坏了”。231 单测 + 回放 + ruff + 结构检查绿。
+  依据：`logs/test/test-20261111-234217.*`（等 45 秒）、`test-20261111-234635.*`（declare 无 cast）；客户端 Player.log 对战斗场景失败没有任何日志。
 - **新增 `advance = "declare"`（下半卡进场动画的对照实验）**：不推场景、不触发客户端重载 stage，改用 `GroupRefreshInfo.group_info`（与 `SceneInfo.entity_group_list` 同一个 `SceneEntityGroupInfo` message）原地**声明**下半的迷宫组，走和上半进场景完全一样的路径；`services/scene.py` 新增 `declared_group_notify`。`[endgame] advance` 支持 `declare|sync|inplace|scene|client`（默认仍是 `sync`），取证脚本 event 规则认 `challenge advance (declare)`；230 单测 + 回放 + ruff 绿。
   依据：用户 23:39 描述「下半进场景、看到 NPC、攻击了，正常会近战，但卡在进战斗的动画（类似『弱点』），几秒后直接结算」——`sync` 路线让客户端 `AdventurePhase._EnterStep2` 重载整个 stage，玩家 5–6 秒后开打，战斗进场卡死；`declare` 用来隔离“重载 stage”这个变量。
 - **`sync` 路线真机通过；新增上下半战斗自证日志**：23:25 / 23:27 两轮 4.7.0 真机上下半都能进、能按 F、能结算（报告 A 段全绿）。剩下的新症状是**下半战斗黑屏 ~15 s 后自己 WIN → 直接结算页**，服务端侧看不出问题，所以补两行日志：`battle stats: battle=… rounds=… turns=… auto_turns=… cost=…s monsters=… damage=… avatars=…`（`handlers/battle.py`，从 `PVEBattleResultCsReq.stt` 取）和 `challenge battle waves: stage=… waves=[[…]]`（`services/challenge.py`），取证脚本加 `battle-stats` / `waves` 两条 event 规则。229 单测 + 回放 + ruff 绿。
