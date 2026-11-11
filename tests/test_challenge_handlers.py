@@ -135,6 +135,9 @@ class ChallengeHandlersTest(unittest.IsolatedAsyncioTestCase):
             second.extra_lineup_type,
             pb.ExtraLineupType.ExtraLineupType_LineupChallenge2,
         )
+        # extra lineups are keyed at type + 10 (DanhengServer LineupManager)
+        self.assertEqual(lineup.index, 11)
+        self.assertEqual(second.index, 13)
         self.assertEqual(len(lineup.avatar_list), 4)
         self.assertEqual(
             sorted(avatar.id for avatar in lineup.avatar_list),

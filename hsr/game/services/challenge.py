@@ -181,7 +181,10 @@ def lineup_info(session, second: bool | None = None) -> pb.LineupInfo:
     )
     lineup = pb.LineupInfo(
         name="",
-        index=0,
+        # DanhengServer/`LineupManager.GetExtraLineup` key extra lineups at
+        # ``type + 10`` (Challenge=11, Challenge2=13); index 0 for both made the
+        # client treat the two teams as the same lineup.
+        index=int(extra_lineup_type) + 10,
         leader_slot=0,
         plane_id=0,
         is_virtual=False,
