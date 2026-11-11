@@ -93,6 +93,10 @@ unlock_all = true
 #             4.6.54 客户端在 _RefreshGroup_Legacy 里 NRE，先不用）
 #   none    = 只回战斗结果，等客户端自己发 StartChallenge（pearl 流程）
 advance = "refresh"
+# 大厅报哪些场景组（客户端按“已加载组”创建地图 NPC）。装饰组里有 4.6.54 客户端
+# 定义残缺的 MapNPC:227-400001，会把传送加载卡死，所以只报可交互展台。
+#   all = 全部 / crystals = 只报 prop_id >= 100000 的展台 / none = 都不报
+lobby_props = "crystals"
 # M0 真机探针开关：一次只改一个，改完登录看忘却之庭右侧卡片数。
 #   all     = 发全部 109 个组（现状）
 #   rewards = 只发领过星数奖励的组（DanhengServer 写法，新号 = 空列表）

@@ -157,6 +157,7 @@ class LobbySceneTest(unittest.IsolatedAsyncioTestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.session = build_session(Path(self.tmp.name))
         self.rt = self.session.runtime
+        self.rt.cfg.endgame.lobby_props = "all"
         self.props = self.rt.endgame.lobby_entry(10000, 100000104)
         self.assertIsNotNone(self.props)
 
@@ -202,6 +203,27 @@ class LobbySceneTest(unittest.IsolatedAsyncioTestCase):
             calyx_group,
             [group.group_id for group in scene.entity_group_list],
         )
+
+    async def test_lobby_crystals_only_skips_decor_groups(self) -> None:
+        """crystals 模式只报展台（prop_id >= 100000），避开客户端的坏 MapNPC。"""
+        self.rt.cfg.endgame.lobby_props = "crystals"
+        scene = scene_service.enter_scene(
+            self.session, plane_id=10000, floor_id=10000000, entry_id=100000104
+        )
+        groups = scene.entity_group_list[1:]
+        self.assertEqual([group.group_id for group in groups], [142, 153, 276])
+        props = [entity for group in groups for entity in group.entity_list]
+        self.assertEqual(len(props), 3)
+        self.assertTrue(
+            all(p.prop.prop_id >= scene_service.LOBBY_CRYSTAL_PROP_MIN for p in props)
+        )
+
+    async def test_lobby_props_none(self) -> None:
+        self.rt.cfg.endgame.lobby_props = "none"
+        scene = scene_service.enter_scene(
+            self.session, plane_id=10000, floor_id=10000000, entry_id=100000104
+        )
+        self.assertEqual(len(scene.entity_group_list), 1)
 
     async def test_lobby_map_info_reports_entry_groups(self) -> None:
         scene_service.enter_scene(

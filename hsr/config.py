@@ -90,6 +90,13 @@ class EndgameSettings(BaseModel):
     #             4.6.54 客户端在 _RefreshGroup_Legacy 里 NRE，暂不默认）
     #   none    = 只回 PVEBattleResultScRsp，等客户端自己发 StartChallenge（pearl 流程）
     advance: Literal["scene", "refresh", "none"] = "scene"
+    # 忘却之庭大厅报哪些场景组（客户端按“已加载组”创建地图 NPC）：
+    #   all      = 全部道具（含车厢装饰）
+    #   crystals = 只报可交互展台（prop_id >= 100000）
+    #   none     = 一个都不报
+    # 4.6.54 的 MapNPC:227-400001 ConfigEntityPath 为空，一旦被创建就在
+    # AdventurePhase._EnterStep2 里 NRE，传送进度条卡死；装饰组带这个 NPC。
+    lobby_props: Literal["all", "crystals", "none"] = "all"
     group_list: Literal["all", "rewards"] = "all"
     send_max_level: bool = False
 

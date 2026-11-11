@@ -251,7 +251,9 @@ def enter_scene(session, *, plane_id: int, floor_id: int, entry_id: int) -> pb.S
     }
     props = runtime.endgame.lobby_entry(plane_id, entry_id)
     if props:
-        state.extra_groups = lobby_groups(props)
+        state.extra_groups = lobby_groups(
+        props, mode=getattr(runtime.cfg.endgame, "lobby_props", "all")
+    )
         # 记住"来大厅之前在哪"：打完整局挑战后要回那个世界场景，而不是留在车厢里。
         if int(previous[0]) != int(plane_id):
             session.lobby_return = previous
@@ -374,6 +376,9 @@ CHALLENGE_FALLBACK_INST = 200001
 # Lobby props (忘却之庭 challenge crystals) sit between the arena ids and the
 # fallback so no two entity groups in one SceneInfo share an id.
 LOBBY_ENTITY_BASE = 2000
+# 大厅里“可交互展台/水晶”的道具 id 都 >= 100000；小于它的是车厢装饰（会触发
+# 4.6.54 客户端里 ConfigEntityPath 为空的 MapNPC:227-400001，传送卡死）。
+LOBBY_CRYSTAL_PROP_MIN = 100000
 
 
 def _npc_entity(
@@ -419,17 +424,31 @@ def _prop_entity(
     )
 
 
-def lobby_groups(props) -> list[pb.SceneEntityGroupInfo]:
+def lobby_groups(props, mode: str = "all") -> list[pb.SceneEntityGroupInfo]:
     """Turn a lobby entry's exported props into loaded scene groups.
 
     One entry spans several maze groups (the 忘却之庭 lobby entry 100000104 has
     groups 2/3/30/47/66/142/153/276), and the client keys challenge crystals off
     ``group_id``, so the props are re-grouped here.  Entity ids start above the
     avatar ids (1..4) and the challenge arena base (1000) so all three can coexist.
+
+    ``mode`` controls which groups are reported as loaded:
+
+    * ``all``      — every exported prop (scenery + crystals).
+    * ``crystals`` — only the interactive stands (``prop_id >= 100000``).  The
+      client creates a *map NPC* for each loaded group; ``MapNPC:227-400001`` has
+      no ``ConfigEntityPath`` in the 4.6.54 client and NREs inside
+      ``AdventurePhase._EnterStep2``, which hard-locks the teleport loading bar.
+      Decor groups carry that NPC, the challenge stands do not.
+    * ``none``     — no lobby groups at all.
     """
+    if mode == "none":
+        return []
     grouped: dict[int, list[pb.SceneEntityInfo]] = {}
     entity_id = LOBBY_ENTITY_BASE
     for prop in props:
+        if mode == "crystals" and int(prop.prop_id) < LOBBY_CRYSTAL_PROP_MIN:
+            continue
         group_id = int(prop.group_id)
         grouped.setdefault(group_id, []).append(
             _prop_entity(
