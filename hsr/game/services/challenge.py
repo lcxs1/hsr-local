@@ -369,7 +369,6 @@ def advance_stage(session) -> tuple[pb.SceneGroupRefreshScNotify, pb.LineupInfo]
         group_id=node.maze_group_id,
         monster_id=node.monster_id,
         stage_id=node.stage_id,
-        avatars=team,
     )
     state.node = node
     state.stage_id = node.stage_id

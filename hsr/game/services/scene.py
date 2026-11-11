@@ -458,6 +458,7 @@ def _challenge_entities(
     stage_id: int,
     pos: tuple[int, int, int],
     rot: tuple[int, int, int],
+    base: int = CHALLENGE_ENTITY_BASE,
 ) -> tuple[list[pb.SceneEntityInfo], int]:
     """NPC monster + props of one challenge maze group.
 
@@ -469,7 +470,7 @@ def _challenge_entities(
     world_level = int(session.runtime.cfg.player.world_level)
     entities: list[pb.SceneEntityInfo] = []
     monster_entity_id = 0
-    next_entity_id = CHALLENGE_ENTITY_BASE
+    next_entity_id = base
 
     if group is not None:
         for index, monster in enumerate(group.monsters):
@@ -526,7 +527,6 @@ def swap_challenge_group(
     group_id: int,
     monster_id: int,
     stage_id: int,
-    avatars: list[int] | None = None,
 ) -> tuple[pb.SceneGroupRefreshScNotify, int]:
     """Replace the arena's maze group in place (上半 -> 下半).
 
@@ -536,8 +536,9 @@ def swap_challenge_group(
     ``SceneGroupRefreshScNotify``.  Rebuilding a whole ``SceneInfo`` instead makes
     the client lose its arena/battle-area binding — that is the 4.6.54 下半黑屏.
 
-    The player's field avatars are refreshed too (下半 has another team).
-    Returns ``(notify, monster_entity_id)``.
+    Only the maze groups are touched here; the field team is switched by
+    ``ChallengeLineupNotify`` + ``SyncLineupNotify``.  Returns
+    ``(notify, monster_entity_id)``.
     """
     runtime = session.runtime
     state = session.scene
@@ -555,6 +556,7 @@ def swap_challenge_group(
         pos = state.position
         rot = (0, 0, 0)
 
+    half = int(getattr(session.challenge, "stage", 1) or 1)
     entities, monster_entity_id = _challenge_entities(
         session,
         group=group,
@@ -563,24 +565,13 @@ def swap_challenge_group(
         stage_id=stage_id,
         pos=pos,
         rot=rot,
+        base=CHALLENGE_ENTITY_BASE + 10 * half,
     )
 
-    team = list(avatars) if avatars else [slot for slot in session.lineup.slots if slot]
-    team_size = getattr(runtime.cfg.world, "team_size", 4)
-    refreshes: list[pb.GroupRefreshInfo] = [
-        pb.GroupRefreshInfo(
-            group_id=int(runtime.cfg.world.avatar_group_id),
-            state=0,
-            refresh_type=pb.SceneGroupRefreshType.SCENE_GROUP_REFRESH_TYPE_LOADED,
-            refresh_entity=[
-                pb.SceneEntityRefreshInfo(delete_entity=slot + 1) for slot in range(team_size)
-            ]
-            + [
-                pb.SceneEntityRefreshInfo(add_entity=entity)
-                for entity in avatar_entities(session, team)
-            ],
-        )
-    ]
+    # 只换迷宫组，而且用新的实体 id（1000 段按半场递增）。4.6.54 的
+    # ``_RefreshGroup_Legacy`` 对“同一分组删了又加同一批实体”“刷角色组”都会 NRE，
+    # 那两个写法已经试过并排除。
+    refreshes: list[pb.GroupRefreshInfo] = []
     for old_group in state.extra_groups:
         refreshes.append(
             pb.GroupRefreshInfo(

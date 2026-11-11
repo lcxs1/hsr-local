@@ -530,6 +530,8 @@ class ChallengeHandlersTest(unittest.IsolatedAsyncioTestCase):
         by_group = {entry.group_id: entry for entry in refresh.group_refresh_list}
         self.assertIn(node1.maze_group_id, by_group)
         self.assertIn(node2.maze_group_id, by_group)
+        # 4.6.54 的 _RefreshGroup_Legacy 在刷角色组时 NRE：这里只换迷宫组
+        self.assertNotIn(self.rt.cfg.world.avatar_group_id, by_group)
         added = [
             item.add_entity
             for item in by_group[node2.maze_group_id].refresh_entity
@@ -537,6 +539,7 @@ class ChallengeHandlersTest(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertTrue(added)
         self.assertEqual(added[0].npc_monster.event_id, node2.stage_id)
+        self.assertGreaterEqual(added[0].entity_id, 1010)
 
     async def test_advance_none_waits_for_client_start(self) -> None:
         """advance=none：服务端不推任何包，等客户端自己发 StartChallenge（pearl 流程）。"""
