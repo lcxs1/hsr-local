@@ -226,6 +226,36 @@ def build_scene(session) -> pb.SceneInfo:
     )
 
 
+def spawn_crystals(session) -> list[pb.SceneEntityGroupInfo]:
+    """把三块终局挑战水晶放在出生点旁边（合成组）。
+
+    大厅 entry 没有导出水晶道具时（例如 `[endgame] lobby_entry` 指到另一节
+    车厢的探针），客户端就没有可点的水晶。这里按大厅同款 prop id
+    （`100083` 混沌回忆 / `101028` 虚构叙事 / `100018` 末日幻影）在玩家脚下
+    摆三个，位置沿用 `/debug/chrystal` 探针的做法。
+
+    返回 ``[SceneEntityGroupInfo]``（一个合成组）。
+    """
+    state = session.scene
+    base = state.position
+    group_id = LOBBY_CRYSTAL_GROUP_ID
+    crystals = ((100083, "混沌回忆"), (101028, "虚构叙事"), (100018, "末日幻影"))
+    entities: list[pb.SceneEntityInfo] = []
+    for index, (prop_id, _label) in enumerate(crystals):
+        entities.append(
+            _prop_entity(
+                group_id=group_id,
+                inst_id=LOBBY_CRYSTAL_INST_BASE + index,
+                entity_id=LOBBY_CRYSTAL_ENTITY_BASE + index,
+                prop_id=prop_id,
+                prop_state=1,
+                pos=(base[0] + (index - 1) * 300, base[1], base[2] + 300),
+                rot=(0, 180000, 0),
+            )
+        )
+    return [pb.SceneEntityGroupInfo(group_id=group_id, state=1, entity_list=entities)]
+
+
 def enter_scene(session, *, plane_id: int, floor_id: int, entry_id: int) -> pb.SceneInfo:
     """Generic scene switch for ``EnterSceneCsReq`` (e.g. 忘却之庭 lobby).
 
@@ -260,10 +290,15 @@ def enter_scene(session, *, plane_id: int, floor_id: int, entry_id: int) -> pb.S
         if item.get("name")
     }
     props = runtime.endgame.lobby_entry(plane_id, entry_id)
-    if props:
-        state.extra_groups = lobby_groups(
-        props, mode=getattr(runtime.cfg.endgame, "lobby_props", "all")
-    )
+    if props is not None:
+        groups = lobby_groups(
+            props, mode=getattr(runtime.cfg.endgame, "lobby_props", "all")
+        )
+        if not any(int(prop.prop_id) >= LOBBY_CRYSTAL_PROP_MIN for prop in props):
+            # 这节车厢/入口没有挑战水晶（比如换 floor 的探针）：放到出生点旁边，
+            # 否则客户端里没有任何可点的东西。
+            groups.extend(spawn_crystals(session))
+        state.extra_groups = groups
         # 记住"来大厅之前在哪"：打完整局挑战后要回那个世界场景，而不是留在车厢里。
         if int(previous[0]) != int(plane_id):
             session.lobby_return = previous
@@ -386,6 +421,10 @@ CHALLENGE_FALLBACK_INST = 200001
 # Lobby props (忘却之庭 challenge crystals) sit between the arena ids and the
 # fallback so no two entity groups in one SceneInfo share an id.
 LOBBY_ENTITY_BASE = 2000
+# 合成水晶（出生点旁边）用的分组/实例/实体 id 段，避开大厅导出道具的 id。
+LOBBY_CRYSTAL_GROUP_ID = 990001
+LOBBY_CRYSTAL_INST_BASE = 400001
+LOBBY_CRYSTAL_ENTITY_BASE = LOBBY_ENTITY_BASE + 500
 # 大厅里“可交互展台/水晶”的道具 id 都 >= 100000；小于它的是车厢装饰（会触发
 # 4.6.54 客户端里 ConfigEntityPath 为空的 MapNPC:227-400001，传送卡死）。
 LOBBY_CRYSTAL_PROP_MIN = 100000

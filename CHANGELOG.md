@@ -4,8 +4,9 @@
 
 ## 2026-11-11
 
-- **大厅传送兜底**：新增 `[endgame] lobby_teleport = "auto" | "ignore" | "scene"`（默认 `auto`）。4.7.0 上「传送」进忘却之庭大厅（plane 10000）改为**忽略**：回 `EnterSceneScRsp` + 重发当前场景，客户端重载后留在原地，不再因为加载该 floor 的 `[MapNPC:227-400001]`（`MapNpcDef.get_ConfigEntityPath` NRE → SDK 弹框 → 会话关闭）硬卡；4.6.54 保持旧行为，`lobby_entry` 显式配置时也照旧切（探针不受影响）。混沌回忆面板不需要大厅。
-  依据：22:31 真机（`logs/test/test-20261111-223046.*`）点传送后客户端 `_EnterStep2` 加载 `MapNPC:227-400001` 失败并退出会话，服务端只能避免把客户端送进这个 floor。
+- **大厅传送：默认恢复切场景 + 探针开关**：`[endgame] lobby_teleport` 默认改回 `scene`（照常切大厅），只保留 `ignore` 作为“宁可不进大厅也别卡”的开关。原因：22:38 真机证明忽略传送后大厅 UI 与挑战水晶一起进不去（“不卡了但也进不去”），而 21:02/21:05 说明大厅**不是每次必挂**。配套：`scripts/game_test.ps1` 新增 `-LobbyEntry <id>` / `-LobbyTeleport <mode>`（临时改 `config.toml`，跑完自动还原）+ `-IntervalShotSec` 定时截图 + 按包截图（`EnterScene`/`InteractProp`/`GetChallenge*`/`StartChallenge*`/`SceneCastSkill`… 抓点击瞬间的 UI）；大厅入口没有水晶道具时在出生点合成三块水晶（`scene_service.spawn_crystals`）。226 单测绿。
+  依据：22:31 传送卡死（客户端 `MapNPC:227-400001` NRE → SDK 弹框关闭会话）与 22:38 三轮“传送被忽略、无法进入”两轮日志。
+- **大厅传送兜底（同日早些时候，已被上面一条修正）**：曾把 4.7.0 的「传送」默认忽略以避免 `MapNPC:227-400001` 卡死；实测会连带堵死入口，已恢复默认切场景。
 - **测试脚本改写**（[guide/02 §3-§5](docs/guide/02-测试与回归.md)）：`scripts/game_test.ps1` 改成 `-Scenario challenge|core`，默认 `challenge`（4.7.0）——每 0.5 s 扫服务端日志/`packets.log` 打事件时间线，事件驱动截图（开始挑战、每次战斗包、**换组后 +0/+6/+14/+25 s**、结算、退出），全程镜像客户端 `Player.log`（原文件每次启动会被覆盖），结束后写 `<run>.report.md`（A 结论摘要：上半/阶段切换/下半/cast & QuitBattle 次数/大厅传送拦截/MapNPC 加载失败/异常；B 时间线；C 请求序列；D 下半窗口客户端日志；E 异常去重；G 服务端尾部）+ `<run>.client.log` + `<run>.packets.log`；新增 `-AnalyseOnly <run>.server.log` 重分析已落盘日志、`-MaxMinutes`/`-StopAfterSettle` 自动收工。`core` 保留旧流程。`services/challenge.py` 补 `challenge settle:` 一行日志、`handlers/scene.py` 补 `lobby teleport ignored` 一行日志供报告判定。
   依据：下半黑屏需要「换组后那十几秒客户端在干什么」的证据；旧脚本只有定时截图 + 末 500 行日志，拿不到包序与下半窗口。
 - **混沌回忆逻辑重写**（[design/04 §5.4](docs/design/04-混沌回忆模拟器口径.md)）：`services/challenge.py` 改成阶段状态机（`phases: list[Phase]`，`enter/enter_tierce/advance/enter_second_half`），阶段切换包序对齐参考实现（`ChallengeLineupNotify` → 角色组刷新 → 卸旧组 → 装新组，入口不变不重建 `SceneInfo`）；`[endgame] advance` 改 `inplace|scene|client`（旧 `refresh/none` 仍可读）。同时修：额外阵容 proto `index` 改 0、退出挑战发 `ChallengeLineupNotify(LineupNone)`+`SyncLineupNotify`、`CurChallenge.round_count/dead_avatar_num` 按战斗结果累计、`GetCurBattleInfoScRsp` 回空但存在的 `battle_info`（4.7.0 `_OnGetCurBattleInfoScRsp` NRE）、新增 `EnterChallengeNextPhase`/`RestartChallengePhase` handler、`GetCurSceneInfo`/场景装配改用场上这一队。221 单测 + `check.ps1` 全绿、回放新增上下半链；**未真机**。
@@ -32,3 +33,4 @@
   原因：v1 的“改 3 个文件=大改”“客户端可见即需真机+人确认”把审批变成常态，人成为串行瓶颈。
 - 新增 git 基线：`git init` 于 2026-11-11，基线提交 `86745c9`（157 文件，排除 `.venv/`、`logs/`、`saves/*.json`）。之后回滚 = `git revert`。
 - 新增 `docs/notes/规则修订-2026-11-11.md`：v1 规则的证据化诊断、v1→v2→v3 改法映射、未决事项。
+

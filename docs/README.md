@@ -83,7 +83,7 @@
 | 客户端版本（默认） | 4.6.54 / `OSBETAWin4.6.54` / build `16927089` | `versions/4.6.54.toml` |
 | 客户端版本（4.7.0） | `CNPRODWin4.7.0` / build `17108910` | `versions/4.7.0.toml`，用 `--profile 4.7.0` 切换 |
 | handler | **78** | `hsr/game/handlers/*.py` 的 `router.add(...)` |
-| 单测 | **221** | `.venv\Scripts\python.exe -m unittest discover -s tests` |
+| 单测 | **226** | `.venv\Scripts\python.exe -m unittest discover -s tests` |
 | freesr 角色/遗器/光锥 | 99 / 418 / 87 | `data/freesr-data.json` |
 | 教程/指南组/子指南 | 1269 / 864 / 1509 | `data/tutorials.json` |
 | 主线/任务/活动 | 2205 / 6018 / 347 | `data/progress.json` |
@@ -234,3 +234,4 @@ cd E:\LCXS\run\hsr-local
 |---|---|
 | 新增 | [reference/05-4.7.0兼容性实测](reference/05-4.7.0兼容性实测.md)：版本键、协议兼容、资源校验绕行、接入清单 |
 | 同步 | 索引 §2.3、升级阅读路径 §4.4、[reference/02](reference/02-开发与版本更新.md) §9、[design/01](design/01-网络与登录.md) §2.3、[guide/01](guide/01-运行与配置.md) §1、[guide/03](guide/03-交接与排障.md) §3/§5 |
+

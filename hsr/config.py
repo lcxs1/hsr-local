@@ -105,14 +105,18 @@ class EndgameSettings(BaseModel):
     # ConfigEntityPath 为空的 MapNPC:227-400001，会卡死传送，换一间车厢试试。
     lobby_entry: int = 0
     # 「传送」进忘却之庭大厅（plane 10000）要不要真的切场景。
-    #   两个客户端都会在加载 floor 时挂在一个配置残缺的地图 NPC 上
-    #   （`[MapNPC:227-400001]` / 换入口后 `[MapNPC:103-400001]`，
-    #   `MapNpcDef.get_ConfigEntityPath` NRE → SDK 弹框 → 会话关闭），服务端补不了；
-    #   而混沌回忆面板（星际和平指南 → 忘却之庭）本来就不需要大厅场景。
-    #   auto   = 4.7.0 忽略、4.6.54 照旧（老客户端 15 层闭环是走大厅过的）
-    #   ignore = 都忽略（回当前场景，客户端重载后留在原地，不硬卡）
-    #   scene  = 都切（对照实验用，会卡）
-    lobby_teleport: Literal["auto", "ignore", "scene"] = "auto"
+    #   两个客户端都会在加载 floor 10000000 时挂在配置残缺的地图 NPC 上
+    #   （MapNPC:227-400001 → MapNpcDef.get_ConfigEntityPath NRE → SDK 弹框 → 会话关闭），
+    #   但不是每次都挂：2026-11-11 21:02 真机成功过一次，21:05 就是从大厅面板开的混沌回忆。
+    #   scene  = 照常切（默认；卡了就重启客户端重试，或换 lobby_entry 试另一个 floor）
+    #   ignore = 不切，只重发当前场景（不会卡，但大厅 UI / 水晶也进不去）
+    lobby_teleport: Literal["scene", "ignore"] = "scene"
+
+    @field_validator("lobby_teleport", mode="before")
+    @classmethod
+    def _legacy_lobby_teleport(cls, value):
+        """``auto`` was a short-lived default (4.7.0 ignore); map it back."""
+        return "scene" if str(value).lower() == "auto" else str(value).lower()
     # 登录后多少秒内点「传送」要压着场景推送，等客户端自己的场景加载态就绪再发。
     # 4.7.0 真机三组数据（同版本、同入口）：
     #   登录后 18 s 传送 -> 卡死；113 s 传送 -> 正常；14 s 传送 -> 卡死。

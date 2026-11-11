@@ -181,29 +181,19 @@ def scene_push_delay(session) -> float:
 
 
 def lobby_teleport_blocked(session) -> bool:
-    """「传送」进忘却之庭大厅会不会把客户端卡死。
+    """「传送」进忘却之庭大厅要不要**忽略**（不切场景）。
 
-    4.6.54 / 4.7.0 **两个客户端**都在加载 plane 10000 的 floor 时挂在一个
-    资源/配置残缺的地图 NPC 上（`[MapNPC:227-400001]`，换到 100000352 变成
-    `[MapNPC:103-400001]`，都报 `MapNpcDef.get_ConfigEntityPath` NRE，随后
-    SDK 弹确认框、会话被关）。这条链服务端补不了（客户端自己的 floor 配置），
-    所以默认**不切场景**：回一个 ``EnterSceneScRsp`` + 当前场景，客户端重载后
-    留在原地，不会硬卡；混沌回忆请从「星际和平指南」面板进。
+    4.6.54 / 4.7.0 都会在加载 plane 10000 的 floor 10000000 时挂在配置残缺的
+    地图 NPC 上（`[MapNPC:227-400001]`，`MapNpcDef.get_ConfigEntityPath` NRE →
+    SDK 弹框 → 会话关闭），但不是每次都挂（2026-11-11 21:02 成功过一次）。
+    卡死不是服务端能修的，但**忽略传送**会让大厅 UI / 挑战水晶一起进不去，
+    所以默认 ``scene``（照常切，卡了重启客户端重试）；``ignore`` 只作为
+    “我宁可不进大厅也别卡”的开关。
 
-    ``[endgame] lobby_teleport``：
-      * ``auto``（默认）= 4.7.0 忽略、4.6.54 照旧（老客户端的大厅偶尔能过，
-        15 层闭环就是走大厅打通的）
-      * ``ignore`` = 都忽略
-      * ``scene``  = 都切场景（对照实验用，会卡）
+    ``[endgame] lobby_teleport``：``scene``（默认）/ ``ignore``。
     """
-    mode = str(getattr(session.runtime.cfg.endgame, "lobby_teleport", "auto")).lower()
-    if mode == "scene":
-        return False
-    if mode == "ignore":
-        return True
-    profile = getattr(getattr(session.runtime, "profile", None), "name", "")
-    profile = profile or str(getattr(session.runtime.cfg.server, "profile", ""))
-    return profile.startswith("4.7")
+    mode = str(getattr(session.runtime.cfg.endgame, "lobby_teleport", "scene")).lower()
+    return mode == "ignore"
 
 
 async def on_enter_scene(session: Session, req: pb.EnterSceneCsReq) -> pb.EnterSceneScRsp | None:

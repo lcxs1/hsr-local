@@ -177,15 +177,12 @@ class LobbySceneTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(self.rt.endgame.lobby_entry(10000, 123456))
         self.assertIsNone(self.rt.endgame.lobby_entry(30101, 30101001))
 
-    async def test_lobby_transport_is_ignored_on_47(self) -> None:
-        """4.7.0 点「传送」进大厅会挂在 MapNPC:*-400001，默认不切场景。
+    async def test_lobby_transport_switch_by_default(self) -> None:
+        """默认 `lobby_teleport = "scene"`：照常切大厅（卡了重启客户端重试）。
 
-        真机 2026-11-11 22:31：`enter scene entry=100000104` 之后客户端
-        `AdventurePhase._EnterStep2` → `MapNpcDef.get_ConfigEntityPath` NRE →
-        SDK 弹框 → 会话被关。混沌回忆面板不需要大厅，所以直接回当前场景。
+        混沌回忆面板/水晶只在大厅里能点，所以不能默认拦掉传送。
         """
-        self.rt.profile = SimpleNamespace(name="4.7.0")
-        self.assertEqual(self.session.scene.plane_id, self.rt.cfg.world.plane_id)
+        self.assertEqual(self.rt.cfg.endgame.lobby_teleport, "scene")
         self.sent = []
 
         async def record(msg, name=None):  # noqa: ANN001
@@ -200,18 +197,19 @@ class LobbySceneTest(unittest.IsolatedAsyncioTestCase):
             ),
         )
         self.assertIsNone(rsp)
-        # 场景没换回大厅，而是重发当前世界场景
-        self.assertEqual(self.session.scene.plane_id, self.rt.cfg.world.plane_id)
+        self.assertEqual(self.session.scene.plane_id, 10000)
         kinds = [type(message).__name__ for message in self.sent]
         self.assertEqual(kinds, ["EnterSceneScRsp", "EnterSceneByServerScNotify"])
-        self.assertEqual(
-            self.sent[-1].scene.plane_id, self.rt.cfg.world.plane_id
-        )
 
-    async def test_lobby_transport_can_be_forced(self) -> None:
-        """`lobby_teleport = "scene"` 时仍然切场景（对照实验用）。"""
-        self.rt.profile = SimpleNamespace(name="4.7.0")
-        self.rt.cfg.endgame.lobby_teleport = "scene"
+    async def test_lobby_transport_can_be_ignored(self) -> None:
+        """`lobby_teleport = "ignore"`：不切场景，只重发当前场景（不卡但进不去大厅）。"""
+        self.rt.cfg.endgame.lobby_teleport = "ignore"
+        self.sent = []
+
+        async def record(msg, name=None):  # noqa: ANN001
+            self.sent.append(msg)
+
+        self.session.send = record  # type: ignore[method-assign]
         rsp = await scene_handlers.on_enter_scene(
             self.session,
             pb.EnterSceneCsReq(
@@ -220,13 +218,15 @@ class LobbySceneTest(unittest.IsolatedAsyncioTestCase):
             ),
         )
         self.assertIsNone(rsp)
-        self.assertEqual(self.session.scene.plane_id, 10000)
+        self.assertEqual(self.session.scene.plane_id, self.rt.cfg.world.plane_id)
+        kinds = [type(message).__name__ for message in self.sent]
+        self.assertEqual(kinds, ["EnterSceneScRsp", "EnterSceneByServerScNotify"])
+        self.assertEqual(self.sent[-1].scene.plane_id, self.rt.cfg.world.plane_id)
 
-    async def test_lobby_entry_override_bypasses_guard(self) -> None:
-        """显式配了 lobby_entry 就是要在测大厅，别把探针也拦掉。"""
-        self.rt.profile = SimpleNamespace(name="4.7.0")
+    async def test_lobby_entry_override_bypasses_ignore(self) -> None:
+        """显式配了 lobby_entry 就是要在测大厅，ignore 也不拦。"""
         self.rt.cfg.endgame.lobby_entry = 100000352
-        self.rt.cfg.endgame.lobby_teleport = "auto"
+        self.rt.cfg.endgame.lobby_teleport = "ignore"
         await scene_handlers.on_enter_scene(
             self.session,
             pb.EnterSceneCsReq(
@@ -237,7 +237,7 @@ class LobbySceneTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.session.scene.entry_id, 100000352)
 
     async def test_lobby_transport_still_works_on_4654(self) -> None:
-        """4.6.54 默认照旧切大厅（老客户端 15 层闭环是走大厅打通的）。"""
+        """4.6.54 也照常切大厅（15 层闭环是走大厅打通的）。"""
         self.rt.profile = SimpleNamespace(name="4.6.54")
         await scene_handlers.on_enter_scene(
             self.session,
@@ -247,6 +247,29 @@ class LobbySceneTest(unittest.IsolatedAsyncioTestCase):
             ),
         )
         self.assertEqual(self.session.scene.plane_id, 10000)
+
+    def test_spawn_crystals_builds_group(self) -> None:
+        """没有水晶道具的大厅入口：在出生点旁边合成三块水晶。
+
+        换 floor 的探针（`-LobbyEntry`）进的车厢可能没有水晶，客户端就没有
+        可点的东西；这里按大厅同款 prop id 摆三个。
+        """
+        self.session.scene.position = (100, 0, 200)
+        groups = scene_service.spawn_crystals(self.session)
+        self.assertEqual(len(groups), 1)
+        self.assertEqual(groups[0].group_id, scene_service.LOBBY_CRYSTAL_GROUP_ID)
+        props = [entity for entity in groups[0].entity_list if entity.HasField("prop")]
+        self.assertEqual(
+            [int(entity.prop.prop_id) for entity in props], [100083, 101028, 100018]
+        )
+        self.assertEqual(
+            [int(entity.entity_id) for entity in props],
+            [
+                scene_service.LOBBY_CRYSTAL_ENTITY_BASE,
+                scene_service.LOBBY_CRYSTAL_ENTITY_BASE + 1,
+                scene_service.LOBBY_CRYSTAL_ENTITY_BASE + 2,
+            ],
+        )
 
     async def test_enter_scene_uses_lobby_groups(self) -> None:
         scene = scene_service.enter_scene(

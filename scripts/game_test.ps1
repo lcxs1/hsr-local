@@ -65,7 +65,16 @@ param(
     [string]$GameDir = 'E:\SiFu\HSRSiFu',
     [string]$GameExe = '',          # 留空 = 按 -Client 选
     [string]$ProxyExe = 'E:\SiFu\HSRSiFu\firefly-go-proxy.exe',
-    [string[]]$ServerArgs = @()     # 追加给服务端（--profile 已自动加）
+    [string[]]$ServerArgs = @(),    # 追加给服务端（--profile 已自动加）
+
+    # 探针：临时改 config.toml 的 [endgame] lobby_entry / lobby_teleport，跑完还原。
+    #   -LobbyEntry 1000002   换个大厅 floor 试试（floor 10000002，避开坏 NPC 227-400001）
+    #   -LobbyTeleport ignore 不切大厅（不会卡，但水晶也进不去）
+    [int]$LobbyEntry = -1,
+    [string]$LobbyTeleport = '',
+
+    # 定时截图（秒）。0 = 只在事件/包触发时拍。
+    [int]$IntervalShotSec = 20
 )
 
 $ErrorActionPreference = 'Stop'
@@ -236,10 +245,11 @@ function Select-Window([object[]]$lines, [string]$from, [string]$to) {
 
 # ------------------------------------------------------------- scenario plan
 $ChallengeSteps = @(
-    '1) 登录后：**不要点任何「传送 / 前往」**（4.7.0 一加载忘却之庭大厅 floor 就会挂：MapNPC:227-400001 NRE）',
-    '   → 打开 星际和平指南 → 忘却之庭 → 混沌回忆（面板是纯 UI，不需要大厅场景）',
-    '   （服务端已经会忽略「传送」到大厅的请求；但别去点，客户端会重载一次场景）',
-    '2) 选【第 1 层】（不要选第 12 层：那是 4.7 的星启 3 节点模式，另算）',
+    '1) 登录后点「传送 / 前往」进忘却之庭大厅。卡在加载条 = 客户端那个坏 NPC（MapNPC:227-400001）',
+    '   处理：关掉游戏重开（服务端别关），再点一次传送；21:02 就是重试后成功进的大厅',
+    '   连试两次都卡：改用 -LobbyEntry 1000002 再跑（换 floor 10000002 的另一节车厢）',
+    '2) 进了大厅：靠近挑战水晶按 F（或点界面里的「忘却之庭」）→ 选【第 1 层】',
+    '   （不要选第 12 层：那是 4.7 的星启 3 节点模式，另算）',
     '3) 编队界面：上半一队、下半另一队（两队都放满，方便看换队）→ 开始挑战',
     '4) 上半：走到怪旁边按 F 开打 → 打完。**打完不要动**，等 20 秒看会不会自动进下半',
     '5) 下半：能打就打（看队伍是不是换成了第二队）；黑屏/卡住就等 30 秒，别退',
@@ -375,6 +385,24 @@ if ($runningGame) {
 
 Write-Step "阶段切换模式 [endgame] advance = $advanceMode；代码 $gitHead"
 
+# -LobbyEntry / -LobbyTeleport：临时改 config.toml（跑完还原），用于探针。
+# 注意：config.toml 是 **无 BOM** 的 UTF-8（tomllib 遇到 BOM 会解析失败），
+# 所以这里用 UTF8Encoding($false) 写回，不能用 Set-Content -Encoding UTF8。
+$configBackup = $null
+if ($LobbyEntry -ge 0 -or $LobbyTeleport) {
+    $configBackup = Get-Content $configPath -Raw -Encoding UTF8
+    $patched = $configBackup
+    if ($LobbyEntry -ge 0) {
+        $patched = $patched -replace '(?m)^\s*lobby_entry\s*=\s*\d+', "lobby_entry = $LobbyEntry"
+    }
+    if ($LobbyTeleport) {
+        $patched = $patched -replace '(?m)^\s*lobby_teleport\s*=\s*"[^"]*"', "lobby_teleport = `"$LobbyTeleport`""
+    }
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($configPath, $patched, $utf8NoBom)
+    Write-Step "探针：lobby_entry=$(if ($LobbyEntry -ge 0) { $LobbyEntry } else { '不变' }) lobby_teleport=$(if ($LobbyTeleport) { $LobbyTeleport } else { '不变' })（跑完还原 config.toml）"
+}
+
 if ($PatchPrefs) {
     Write-Step '预写客户端“指南/教程已读”PlayerPrefs（可选）…'
     & (Join-Path $PSScriptRoot 'fix_client_prefs.ps1')
@@ -492,6 +520,8 @@ Write-Host ''
 $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 $lastStatus = 0
 $userDone = $false
+$script:pktShotAt = @{}
+$script:lastIntervalShot = Get-Date
 $lastChallengeAt = Get-Date
 
 while (-not $userDone) {
@@ -534,11 +564,30 @@ while (-not $userDone) {
         Add-Content -Path $clientMirror -Value ($newClient -join "`r`n") -Encoding UTF8
     }
 
-    # 3) packets.log → 本次运行的请求序列
+    # 3) packets.log → 本次运行的请求序列（顺手按包截图，抓点击瞬间的 UI）
     $newPackets = Read-NewLines $PacketsLog
     if ($newPackets.Count -gt 0) {
-        foreach ($line in $newPackets) { [void]$packetLines.Add($line) }
+        foreach ($line in $newPackets) {
+            [void]$packetLines.Add($line)
+            if ($line -match '-> ([A-Za-z0-9_]+)CsReq') {
+                $req = $Matches[1]
+                if ($req -match '^(EnterScene|InteractProp|GetChallenge|GetChallengeGroupStatistics|StartChallenge|StartChallengeTierce|LeaveChallenge|SceneCastSkill|QuitBattle|GetCurChallenge)$') {
+                    $now = Get-Date
+                    $last = if ($script:pktShotAt.ContainsKey($req)) { $script:pktShotAt[$req] } else { [datetime]::MinValue }
+                    if (($now - $last).TotalSeconds -ge 8) {
+                        $script:pktShotAt[$req] = $now
+                        [void](Take-Shot "pkt-$req")
+                    }
+                }
+            }
+        }
         Add-Content -Path $packetsMirror -Value ($newPackets -join "`r`n") -Encoding UTF8
+    }
+
+    # 3b) 定时截图（-IntervalShotSec，0 = 关）
+    if ($IntervalShotSec -gt 0 -and ((Get-Date) - $script:lastIntervalShot).TotalSeconds -ge $IntervalShotSec) {
+        $script:lastIntervalShot = Get-Date
+        [void](Take-Shot 'tick')
     }
 
     # 4) 到期截图
@@ -853,6 +902,11 @@ Write-Host ''
 
 # ------------------------------------------------------------------ cleanup
 if (-not $AnalyseOnly) {
+    if ($configBackup) {
+        $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+        [System.IO.File]::WriteAllText($configPath, $configBackup, $utf8NoBom)
+        Write-Step 'config.toml 已还原（lobby_entry / lobby_teleport）'
+    }
     if (-not $KeepProxy) {
         try { Set-SystemProxy 0; Write-Step '系统代理已关闭（ProxyEnable=0）' } catch { Write-Warn2 "还原系统代理失败：$_" }
     }
