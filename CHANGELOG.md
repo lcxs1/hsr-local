@@ -4,6 +4,8 @@
 
 ## 2026-11-11
 
+- **收工：交接快照重写**（[notes/2026-11-11-混沌回忆状态快照](docs/notes/2026-11-11-混沌回忆状态快照.md)）：改成一份完整交接文档 —— 现状一句话、代码在做什么（`advance` 各模式已知结论）、今晚修掉的 6 条（症状→根因→修法→证据）、**唯一未解决项**（下半战斗卡进场动画：两个实验的失败数据 + 已排除项 + `/debug/challenge?second=1` 探针 + 3 个备选改法）、复测命令与判据、日志/截图判据、关键 ID、其它搁置项、9 条教训。`docs/README`、`guide/03 §5`、`design/04` 顶部同步指向。
+  依据：用户收工，要求把关键信息落文档方便交接。
 - **下半战斗问题的两轮实验结论 + 新探针 `/debug/challenge?second=1`**：① `sync` 下下半**等 45 秒**再打仍卡（`battle stats turns=0 cost=9s`，同轮上半 `turns=1 cost=15s`）→ 不是加载竞态；② `advance=declare` 不重载 stage，但客户端**不发 `SceneCastSkill`** → `group_info` 声明出来的组里没有可攻击的怪。于是把变量切到战斗本身：`start_direct(..., second=True)` + `GET /debug/challenge?id=5501&second=1` 直接把下半当第一场战斗打，用来分辨“下半战斗包不对”还是“换半场把客户端状态弄坏了”。231 单测 + 回放 + ruff + 结构检查绿。
   依据：`logs/test/test-20261111-234217.*`（等 45 秒）、`test-20261111-234635.*`（declare 无 cast）；客户端 Player.log 对战斗场景失败没有任何日志。
 - **新增 `advance = "declare"`（下半卡进场动画的对照实验）**：不推场景、不触发客户端重载 stage，改用 `GroupRefreshInfo.group_info`（与 `SceneInfo.entity_group_list` 同一个 `SceneEntityGroupInfo` message）原地**声明**下半的迷宫组，走和上半进场景完全一样的路径；`services/scene.py` 新增 `declared_group_notify`。`[endgame] advance` 支持 `declare|sync|inplace|scene|client`（默认仍是 `sync`），取证脚本 event 规则认 `challenge advance (declare)`；230 单测 + 回放 + ruff 绿。
