@@ -4,6 +4,8 @@
 
 ## 2026-11-11
 
+- **测试脚本改写**（[guide/02 §3-§5](docs/guide/02-测试与回归.md)）：`scripts/game_test.ps1` 改成 `-Scenario challenge|core`，默认 `challenge`（4.7.0）——每 0.5 s 扫服务端日志/`packets.log` 打事件时间线，事件驱动截图（开始挑战、每次战斗包、**换组后 +0/+6/+14/+25 s**、结算、退出），全程镜像客户端 `Player.log`（原文件每次启动会被覆盖），结束后写 `<run>.report.md`（A 结论摘要：上半/阶段切换/下半/cast & QuitBattle 次数/异常；B 时间线；C 请求序列；D 下半窗口客户端日志；E 异常去重；G 服务端尾部）+ `<run>.client.log` + `<run>.packets.log`；新增 `-AnalyseOnly <run>.server.log` 重分析已落盘日志、`-MaxMinutes`/`-StopAfterSettle` 自动收工。`core` 保留旧流程。`services/challenge.py` 补 `challenge settle:` 一行日志供报告判定。
+  依据：下半黑屏需要「换组后那十几秒客户端在干什么」的证据；旧脚本只有定时截图 + 末 500 行日志，拿不到包序与下半窗口。
 - **混沌回忆逻辑重写**（[design/04 §5.4](docs/design/04-混沌回忆模拟器口径.md)）：`services/challenge.py` 改成阶段状态机（`phases: list[Phase]`，`enter/enter_tierce/advance/enter_second_half`），阶段切换包序对齐参考实现（`ChallengeLineupNotify` → 角色组刷新 → 卸旧组 → 装新组，入口不变不重建 `SceneInfo`）；`[endgame] advance` 改 `inplace|scene|client`（旧 `refresh/none` 仍可读）。同时修：额外阵容 proto `index` 改 0、退出挑战发 `ChallengeLineupNotify(LineupNone)`+`SyncLineupNotify`、`CurChallenge.round_count/dead_avatar_num` 按战斗结果累计、`GetCurBattleInfoScRsp` 回空但存在的 `battle_info`（4.7.0 `_OnGetCurBattleInfoScRsp` NRE）、新增 `EnterChallengeNextPhase`/`RestartChallengePhase` handler、`GetCurSceneInfo`/场景装配改用场上这一队。221 单测 + `check.ps1` 全绿、回放新增上下半链；**未真机**。
   依据：4.6.54 8 轮 + 4.7.0 5 轮真机反复出现「下半黑屏/节点二战斗被拒」，旧实现每次只打补丁；对照 HyacineCore 4.0（`NextPhase`/`PacketSceneGroupRefreshScNotify`/`LineupInfo.ToProto`）与 pearl-sr 逐条对齐。
 - 星启模式节点切换加 `advance = "refresh"` 探针：新增 `challenge_service.advance_tierce_refresh`（原地换组，`SceneGroupRefreshScNotify`），`_enter_second_half` 对 tierce 也走同一个 `[endgame] advance` 开关，默认改 `refresh`。依据：4.7.0 真机 21:35 节点一打完、重建 `SceneInfo` 进节点二时客户端「场景不对 + 战斗黑屏」，与 4.6.54 下半同症状，唯一没试过的路是原地换组。211 单测绿。

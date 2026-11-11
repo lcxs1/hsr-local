@@ -170,6 +170,18 @@ async def on_pve_result(session: Session, req: pb.PVEBattleResultCsReq) -> pb.PV
         # Settlement must follow the result ack; without the notify the client
         # stays in the arena and respawns the monster forever.
         await session.send(rsp)
+        stars = 3 if won else 0
+        session.runtime.logger.info(
+            "challenge settle: challenge=%d phase=%d/%d win=%s star=%d"
+            " rounds_left=%d dead=%d",
+            challenge.challenge_id,
+            challenge.index + 1,
+            len(challenge.phases),
+            won,
+            stars,
+            challenge.rounds_left,
+            challenge.dead_avatars,
+        )
         await session.send(challenge_service.settle_notify(session, win=won))
         if getattr(challenge, "direct", False):
             await _leave_direct(session)
