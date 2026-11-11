@@ -706,9 +706,26 @@ def start_direct(session, challenge_id: int) -> pb.SceneInfo | None:
     loads the train-car lobby floor, which makes the lobby path unusable.
     """
     challenge = session.runtime.endgame.challenge(challenge_id)
-    if challenge is None:
+    tierce_stage = session.runtime.endgame.tierce_stage(challenge_id)
+    if challenge is None and tierce_stage is None:
         return None
     team = [slot for slot in session.lineup.slots if slot]
+    if challenge is None:
+        # 星启模式那一层（真机 id 5513 = 普通过关行 +1）：没有大厅也能直接进节点一。
+        state, scene = enter_tierce(
+            session,
+            challenge_id,
+            stage_index=0,
+            teams=[team],
+        )
+        state.direct = True
+        session.runtime.logger.info(
+            "challenge direct start (tierce): id=%d stage=%d team=%s",
+            challenge_id,
+            state.stage_id,
+            team,
+        )
+        return scene
     state, scene = enter(
         session,
         challenge.id,
