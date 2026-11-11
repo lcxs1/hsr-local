@@ -514,6 +514,53 @@ def advance_tierce(session) -> pb.SceneInfo:
     return scene
 
 
+def advance_tierce_refresh(
+    session,
+) -> tuple[pb.SceneGroupRefreshScNotify, pb.LineupInfo]:
+    """星启模式**原地**换到下一个节点（DanhengServer 风格，探针）。
+
+    4.7.0 真机 21:35：节点一胜利后服务端重建 ``SceneInfo`` 进节点二，客户端
+    "场景不对" + 战斗黑屏，和 4.6.54 下半一模一样。这条路径只卸旧组、装新组，
+    不重建场景（4.6.54 的 ``_RefreshGroup_Legacy`` 会 NRE，4.7.0 未验证）。
+    """
+    state = session.challenge
+    nodes = list(state.tierce_nodes) or tierce_nodes(session, state.challenge_id) or []
+    next_index = int(state.stage_index) + 1
+    pick = min(next_index, len(nodes) - 1) if nodes else 0
+    node = nodes[pick] if nodes else state.node
+    team_pick = min(next_index, len(state.tierce_teams) - 1) if state.tierce_teams else 0
+    team = (
+        list(state.tierce_teams[team_pick]) if state.tierce_teams else list(state.avatars)
+    )
+    # 实体 id 段跟着节点走（1000 + 10*stage），避免和上一节点的 id 撞。
+    state.stage = next_index + 1
+    notify, monster_entity_id = scene_service.swap_challenge_group(
+        session,
+        group_id=node.maze_group_id,
+        monster_id=node.monster_id,
+        stage_id=node.stage_id,
+    )
+    state.node = node
+    state.stage_index = next_index
+    state.second = next_index >= 1
+    state.stage_id = node.stage_id
+    state.monster_entity_id = monster_entity_id
+    state.avatars = team
+    state.battle_id = 0
+    state.battle_ids.clear()
+    session.battle_info = None
+    session.runtime.logger.info(
+        "challenge tierce advance (refresh): id=%d stage_index=%d group=%d"
+        " stage=%d team=%s",
+        state.challenge_id,
+        state.stage_index,
+        node.maze_group_id,
+        node.stage_id,
+        team,
+    )
+    return notify, lineup_info(session)
+
+
 def advance_scene(session) -> pb.SceneInfo:
     """Rebuild the arena as node2 and return the new ``SceneInfo`` (scene mode).
 

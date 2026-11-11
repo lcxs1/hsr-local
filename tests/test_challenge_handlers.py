@@ -866,5 +866,45 @@ class ChallengeHandlersTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rsp.scene.plane_id, state.node.plane_id)
 
 
+    async def test_tierce_advance_by_group_swap(self) -> None:
+        """``advance = "refresh"``：星启换节点只发组刷新，不重建场景。
+
+        4.7.0 真机 21:35：重建 ``SceneInfo`` 进节点二 → 客户端"场景不对" + 战斗黑屏
+        （和 4.6.54 下半同一症状），所以这条原地换组的路要留一个开关。
+        """
+        self.rt.cfg.endgame.advance = "refresh"
+        await challenge_handlers.on_start_challenge_tierce(
+            self.session,
+            pb.StartChallengeTierceCsReq(
+                challenge_id=5513,
+                stage_index=0,
+                lineup_tierce_list=[
+                    pb.LineupTierce(tierce_avatar_id_list=self._lineup(1506, 1501)),
+                    pb.LineupTierce(tierce_avatar_id_list=self._lineup(1502, 1503)),
+                    pb.LineupTierce(tierce_avatar_id_list=self._lineup(1201, 1202)),
+                ],
+            ),
+        )
+        battle = await scene_handlers.on_cast_skill(
+            self.session, pb.SceneCastSkillCsReq(cast_entity_id=1)
+        )
+        await battle_handlers.on_pve_result(
+            self.session,
+            pb.PVEBattleResultCsReq(
+                battle_id=battle.battle_info.battle_id,
+                stage_id=battle.battle_info.stage_id,
+                end_status=pb.BattleEndStatus.Value("BATTLE_END_WIN"),
+            ),
+        )
+        names = [type(message).__name__ for message in self.sent]
+        self.assertIn("SceneGroupRefreshScNotify", names)
+        self.assertNotIn("EnterSceneByServerScNotify", names)
+        self.assertEqual(self.session.challenge.stage_index, 1)
+        refresh = [m for m in self.sent if type(m).__name__ == "SceneGroupRefreshScNotify"][0]
+        groups = [item.group_id for item in refresh.group_refresh_list]
+        # 旧组（node1 的 9）卸掉、新组（node2 的 10）装上
+        self.assertIn(10, groups)
+
+
 if __name__ == "__main__":
     unittest.main()

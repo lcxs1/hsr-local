@@ -101,13 +101,18 @@ async def _enter_second_half(session: Session) -> None:
     """
     state = getattr(session, "challenge", None)
     tierce = bool(state is not None and getattr(state, "tierce", False))
-    # 星启模式没有"上下半"一说：节点之间一律重建 SceneInfo，refresh 只对 node1→node2 有意义。
-    mode = "scene" if tierce else session.runtime.cfg.endgame.advance
+    # 星启模式的节点切换也用同一个开关（4.7.0 真机：scene 重建进节点二会黑屏，
+    # 和 4.6.54 下半同一症状，所以 refresh = 原地换组是下一个要试的）。
+    mode = session.runtime.cfg.endgame.advance
     if mode == "none":
         session.runtime.logger.info("challenge advance: skipped (advance=none)")
         return
     if mode == "refresh":
-        refresh, lineup = challenge_service.advance_stage(session)
+        refresh, lineup = (
+            challenge_service.advance_tierce_refresh(session)
+            if tierce
+            else challenge_service.advance_stage(session)
+        )
         await session.send(refresh)
         await session.send(
             pb.ChallengeLineupNotify(extra_lineup_type=lineup.extra_lineup_type)

@@ -4,6 +4,9 @@
 
 ## 2026-11-11
 
+- 星启模式节点切换加 `advance = "refresh"` 探针：新增 `challenge_service.advance_tierce_refresh`（原地换组，`SceneGroupRefreshScNotify`），`_enter_second_half` 对 tierce 也走同一个 `[endgame] advance` 开关，默认改 `refresh`。依据：4.7.0 真机 21:35 节点一打完、重建 `SceneInfo` 进节点二时客户端「场景不对 + 战斗黑屏」，与 4.6.54 下半同症状，唯一没试过的路是原地换组。211 单测绿。
+- 传送卡死的时间假设**证伪**：7 s 成功 / 14 s 卡 / 14 s+压到 25 s 仍卡，5 轮数据表进 `design/04 §5.2`；`lobby_grace_seconds` 回退默认 0（代码留着当探针）。同会话内卡过后连点 5 次传送都救不回，只能重启客户端。
+
 - 4.7.0「星启模式」协议落地（[design/04 §5.2](docs/design/04-混沌回忆模拟器口径.md)）：实现 `StartChallengeTierceCsReq`（cmd 8986）/`LeaveChallengeTierceCsReq`（cmd 8987）。一层 = 3 个节点、客户端一次下发 3 套 `lineup_tierce_list`；`ChallengeState` 加 `tierce/stage_index/tierce_teams`，新增 `challenge_service.enter_tierce`/`advance_tierce`（节点间重建 `SceneInfo`），第 3 个节点打完才 `ChallengeSettleNotify`。修「混沌回忆第 12 层编队点『混沌回忆』按钮没反应」。76 handlers、全量 `check.ps1` 绿，待真机。
   依据：真机 `packets.log` 显示客户端连发 5 次 `StartChallengeTierceCsReq (cmd 8986) 93 bytes`、服务端记 unhandled，按钮才没反应。
 - 4.7.0 真机第 1 轮：三张终局卡片（混沌回忆/虚构叙事/末日幻影）在 4.7.0 **自动解锁**；大厅传送仍卡在与 4.6.54 **同一个** `MapNPC:227-400001`（`MapNpcDef.get_ConfigEntityPath` NRE），确定是客户端资源问题、服务端补不了。下一轮绕开大厅走「星际和平指南 → 混沌回忆」面板，`lobby_props` 改 `crystals` 做对照。写入 `design/04 §5.2`、`reference/05 §5.2`。
