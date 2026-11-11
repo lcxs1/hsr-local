@@ -972,6 +972,11 @@ def battle_info(session) -> pb.SceneBattleInfo:
     state.battle_ids.add(battle_id)
     session.battle_info = info
     runtime.logger.info(
+        "challenge battle waves: stage=%d waves=%s",
+        state.stage_id,
+        [list(wave) for wave in stage.waves],
+    )
+    runtime.logger.info(
         "challenge battle info: id=%d challenge=%d mode=%s phase=%d stage=%d"
         " waves=%d avatars=%s buffs=%d rounds=%d",
         battle_id,

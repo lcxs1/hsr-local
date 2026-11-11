@@ -106,6 +106,37 @@ async def _advance_phase(session: Session, rsp: pb.PVEBattleResultScRsp) -> None
         await session.send(message)
 
 
+def _log_battle_stats(session: Session, req: pb.PVEBattleResultCsReq) -> None:
+    """Log what the client says actually happened in the fight.
+
+    2026-11-11 真机：下半场景能进了，但客户端在那一场「黑屏 15 秒 → 自己报 WIN」，
+    玩家看起来像「战斗被跳过、直接结算」。服务端只看 `end_status` 分不出这是
+    真打了一场还是客户端没跑起来，所以把 `stt` 里的回合数/自动回合数/时长/
+    怪物数/伤害总量都记一行：真打的战斗这几个数都不为 0。
+    """
+    stats = getattr(req, "stt", None)
+    if stats is None:
+        session.runtime.logger.info("battle stats: none (client sent no stt)")
+        return
+    avatars = list(getattr(stats, "battle_avatar_list", []))
+    monsters = list(getattr(stats, "monster_list", []))
+    session.runtime.logger.info(
+        "battle stats: battle=%d rounds=%d turns=%d auto_turns=%d cost=%ds"
+        " monsters=%d damage=%d avatars=%s",
+        int(getattr(req, "battle_id", 0) or 0),
+        int(getattr(stats, "round_cnt", 0) or 0),
+        int(getattr(stats, "total_battle_turns", 0) or 0),
+        int(getattr(stats, "total_auto_turns", 0) or 0),
+        int(getattr(stats, "cost_time", 0) or getattr(req, "cost_time", 0) or 0),
+        len(monsters),
+        sum(int(getattr(avatar, "total_damage", 0) or 0) for avatar in avatars),
+        [
+            (int(getattr(avatar, "id", 0) or 0), int(getattr(avatar, "total_damage", 0) or 0))
+            for avatar in avatars
+        ],
+    )
+
+
 async def on_pve_result(session: Session, req: pb.PVEBattleResultCsReq) -> pb.PVEBattleResultScRsp:
     try:
         end_name = pb.BattleEndStatus.Name(req.end_status)
@@ -118,6 +149,7 @@ async def on_pve_result(session: Session, req: pb.PVEBattleResultCsReq) -> pb.PV
         req.end_status,
         end_name,
     )
+    _log_battle_stats(session, req)
     active = getattr(session, "battle_info", None)
     challenge = getattr(session, "challenge", None)
     # The client settles the id it acted on, which can be older than the last id
