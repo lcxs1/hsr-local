@@ -4,6 +4,9 @@
 
 ## 2026-11-11
 
+- 4.7.0 真机第 1 轮：三张终局卡片（混沌回忆/虚构叙事/末日幻影）在 4.7.0 **自动解锁**；大厅传送仍卡在与 4.6.54 **同一个** `MapNPC:227-400001`（`MapNpcDef.get_ConfigEntityPath` NRE），确定是客户端资源问题、服务端补不了。下一轮绕开大厅走「星际和平指南 → 混沌回忆」面板，`lobby_props` 改 `crystals` 做对照。写入 `design/04 §5.2`、`reference/05 §5.2`。
+  依据：用户 4.7.0 真机反馈 + `Player.log` 栈；解锁门槛被证伪后不再在服务端猜解锁条件。
+
 - 4.6.54 真机 8 轮的经验落文档：`design/04 §5.1`（六条结论：客户端不会自己进下半、refresh 组刷新 NRE、scene 下半黑屏 0 轮结算、大厅传送卡在 `MapNPC:*-400001`、max_level 不解锁、`/debug/challenge` 无 UI 不能攻击）；`guide/03` 坑 34–38；`reference/05 §5.2` 给出 4.7.0 复测清单。
   依据：用户决定停用已废弃的 4.6.54 测试服客户端，换 4.7.0 前先把经验写下来。
 - 混沌回忆 A 口径 M1（[design/04](docs/design/04-混沌回忆模拟器口径.md)）：`StartChallengeScRsp`/`GetCurChallenge` 回**两套阵容**（Danheng/LunarCore 同做法）；上半→下半改为**原地换组**（`scene.swap_challenge_group` 发 `SceneGroupRefreshScNotify`，不再重建 `SceneInfo`）；下半清空 `battle_ids` 防止重复上半结果提前结算；新增 `[endgame]` 配置（`moc_group_id=0` 按赛季时间自动选期、`unlock_all`、两个真机探针开关）。195 单测 + 全量回归绿，待真机。

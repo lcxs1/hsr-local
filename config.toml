@@ -92,11 +92,11 @@ unlock_all = true
 #   refresh = 同场景原地换实体组 SceneGroupRefreshScNotify（DanhengServer 做法；
 #             4.6.54 客户端在 _RefreshGroup_Legacy 里 NRE，先不用）
 #   none    = 只回战斗结果，等客户端自己发 StartChallenge（pearl 流程）
-advance = "refresh"
+advance = "scene"
 # 大厅报哪些场景组（客户端按“已加载组”创建地图 NPC）。装饰组里有 4.6.54 客户端
 # 定义残缺的 MapNPC:227-400001，会把传送加载卡死，所以只报可交互展台。
 #   all = 全部 / crystals = 只报 prop_id >= 100000 的展台 / none = 都不报
-lobby_props = "all"
+lobby_props = "crystals"
 # 传送进忘却之庭时换成哪个入口（0 = 用客户端请求的 100000104）。
 # 参考实现（DanhengServer/LunarCore 的 CHALLENGE_PEAK_ENTRANCE、pearl-sr 的 Peak 返回点）
 # 用的都是 100000352（floor 10000003，观景车厢）。100000104 里有 ConfigEntityPath
