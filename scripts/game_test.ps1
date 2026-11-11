@@ -275,7 +275,7 @@ $ChallengeRules = @(
     @{ Name = 'battle-info';    Pattern = 'challenge battle info: id=(\d+) .*phase=(\d+)';   Shots = @(0, 4) },
     @{ Name = 'cast';           Pattern = 'scene cast skill -> challenge battle';            Shots = @() },
     @{ Name = 'result';         Pattern = 'challenge battle result: .*phase=(\d+)/(\d+) .*win=(\w+)'; Shots = @(0) },
-    @{ Name = 'advance';        Pattern = 'challenge advance \((inplace|scene)\)';           Shots = @(0, 6, 14, 25) },
+    @{ Name = 'advance';        Pattern = 'challenge advance \((sync|inplace|scene)\)';      Shots = @(0, 6, 14, 25) },
     @{ Name = 'advance-wait';   Pattern = 'challenge advance: waiting for client';           Shots = @(0) },
     @{ Name = 'settle';         Pattern = 'challenge settle:';                               Shots = @(0, 5) },
     @{ Name = 'leave';          Pattern = 'leave challenge:';                                Shots = @(0) },

@@ -4,6 +4,8 @@
 
 ## 2026-11-11
 
+- **阶段切换改成参考实现的 `sync` 路线（下半卡近战第二轮修）**：`[endgame] advance` 默认从 `inplace` 改成 `sync` —— `ChallengeLineupNotify` + `SyncLineupNotify` → `PVEBattleResultScRsp` → `SyncServerSceneChangeNotify` + `EnterSceneByServerScNotify`（整份新 `SceneInfo`，`entity_group_list` 里声明 node2 的迷宫组），**不再发任何 `SceneGroupRefreshScNotify`**；`inplace`/`scene`/`client` 保留为 A/B。测试脚本 event 规则认 `challenge advance (sync)`；回放链改跑 `sync` 并断言“sync 段不许出现组刷新 + 包序”；新增单测 `test_advance_sync_uses_reference_packets`（228 单测绿、`check.ps1` 除 `AGENTS.md` 死链外全绿）。
+  依据：`logs/test/test-20261111-230753.*` 三轮真机 —— 去掉卸载后 `Already Exists` 消失，但每次 advance 仍有一条 `_OnSceneGroupRefreshScNotify` → `MapDef._ActiveServerHoyoGroup` NRE（4.7.0 不认没在 `SceneInfo` 里声明过的 server group），下半 NPC 看得见、按 F 只有近战动作、advance 后零 `SceneCastSkill`；同一时刻客户端自己重载 stage（`AdventurePhase._EnterStep2`），说明它在等“服务器场景变了”的信号。参考 LunarCore `ChallengeInstance.advanceStage`（`SyncServerSceneChangeNotify` + `EnterSceneByServerScNotify`）。
 - **新增接手快照** [`docs/notes/2026-11-11-混沌回忆状态快照.md`](docs/notes/2026-11-11-混沌回忆状态快照.md)：把这一晚的全部结论（6 条已确认根因 + 证据路径）、当前代码行为、下一轮真机判据（报告 A 段三行）与 4 个候选改法、日志分析命令、关键数据 id 写进一篇；`docs/README §2.0`、`guide/03 §5`、`design/04` 顶部都指向它。用于上下文压缩 / 换人接手。
   依据：用户要求先落文档再汇报测试结果。
 - **下半卡近战/黑屏的根因修掉**：换半场默认**不再卸载旧迷宫组**（4.7.0 把 `refresh_type=LOADED` 的“卸载包”当成「激活组」→ `Reload ServerGroup Error, Already Exists!!! ServerGroupID: 9` → `MapDef._ActiveServerHoyoGroup` NRE → 客户端黑屏「弱点」/卡近战、advance 之后一个 `SceneCastSkill` 都不发）。新增 `[endgame] unload_old_group`（默认 false；true = 用 `refresh_type=UNLOAD` 整组卸载，未真机）。取证脚本 A 段新增三行判定（客户端组刷新报错 / 下半是否发出 cast / 大厅传送拦截），并修掉多轮尝试时 “cast 统计串轮”“误报上半重打”。227 单测绿。

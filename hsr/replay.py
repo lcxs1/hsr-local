@@ -259,7 +259,7 @@ async def run_challenge_flow(
     with tempfile.TemporaryDirectory(prefix="hsr-replay-") as tmp:
         save = SaveStore(path=Path(tmp) / "player.json", player=copy.deepcopy(rt.save.player))
         local = replace(rt, save=save)
-        local.cfg.endgame.advance = "inplace"
+        local.cfg.endgame.advance = "sync"
         session = ReplaySession(local)
         result = ReplayResult()
 
@@ -340,29 +340,25 @@ async def run_challenge_flow(
         await finish(upper)
         names = [type(message).__name__ for message in session.sent]
         _check("ChallengeSettleNotify" not in names, "上半 must not settle the run")
-        _check("EnterSceneByServerScNotify" not in names, "inplace switch rebuilt the scene")
+        rsp_index = names.index("PVEBattleResultScRsp")
         _check(
-            names[0] == "ChallengeLineupNotify",
+            names[:rsp_index] == ["ChallengeLineupNotify", "SyncLineupNotify"],
             f"lineup switch must precede the result ack: {names}",
         )
         _check(
-            names.index("PVEBattleResultScRsp") < len(names) - 1,
-            f"group refresh must follow the result ack: {names}",
+            names[rsp_index + 1 :]
+            == ["SyncServerSceneChangeNotify", "EnterSceneByServerScNotify"],
+            f"scene-change sequence mismatch: {names}",
         )
-        groups = [
-            entry.group_id
-            for message in session.sent
-            if type(message).__name__ == "SceneGroupRefreshScNotify"
-            for entry in message.group_refresh_list
-        ]
+        scene = session.sent[-1].scene
+        groups = [group.group_id for group in scene.entity_group_list]
         _check(
             challenge.node2.maze_group_id in groups,
-            "new arena group was not loaded",
+            "new arena group was not declared in the scene",
         )
-        # 4.7.0 把 LOADED 的卸载包当成“激活组”（Already Exists + NRE），默认不卸旧组。
         _check(
             challenge.node1.maze_group_id not in groups,
-            "old arena group must not be refreshed with LOADED",
+            "old arena group must not stay in the new scene",
         )
         result.events.append("challenge_advance")
 

@@ -16,22 +16,25 @@ kept ``node``/``second``/``stage``/``tierce_nodes``/``tierce_teams`` as five
 parallel half-states and patched each symptom (``advance=none|refresh|scene``)
 separately, which is why the same 下半 problems kept coming back.
 
-The transition itself follows the newest reference implementation
-(HyacineCore 4.0 ``ChallengeMemoryInstance.NextPhase`` / DanhengServer
-``AdvanceStage``) *packet for packet*:
+The transition itself follows the reference implementation that actually gets a
+second half to load (LunarCore ``ChallengeInstance.advanceStage``), packet for
+packet:
 
     1. ``ChallengeLineupNotify`` with the next phase's ``extra_lineup_type``
-    2. avatar group re-sync (``SceneGroupRefreshScNotify``, new team on field)
-    3. unload the previous maze group   (``SceneGroupRefreshScNotify``)
-    4. load the next maze group         (``SceneGroupRefreshScNotify``)
+    2. ``SyncServerSceneChangeNotify``  (server scene changed → client re-enters)
+    3. ``SyncLineupNotify`` + ``EnterSceneByServerScNotify`` carrying the next
+       phase's whole ``SceneInfo`` (``entity_group_list`` declares the new maze
+       group)
 
 with ``[endgame] advance``:
 
-* ``inplace`` (default) — the four packets above; same scene, no ``SceneInfo``
-  rebuild.  This is what the references do.
-* ``scene``   — rebuild the next phase's ``SceneInfo`` and push it with
-  ``EnterSceneByServerScNotify`` (LunarCore style, the 4.6.54 black-screen path;
-  kept only as an A/B probe).
+* ``sync`` (default) — the four packets above.  This is what the references do.
+* ``inplace`` — patch maze groups entity-by-entity with
+  ``SceneGroupRefreshScNotify``.  This is what 4.7.0 chokes on (the client runs
+  ``MapDef._ActiveServerHoyoGroup`` on a group it never declared, NREs, keeps the
+  visual NPC but never sends ``SceneCastSkillCsReq``); kept only as an A/B probe.
+* ``scene``   — push the new ``SceneInfo`` **without**
+  ``SyncServerSceneChangeNotify`` (4.6.54/4.7.0 black-screen path; A/B only).
 * ``client``  — push nothing and wait for the client to send ``StartChallenge``
   again (pearl-sr style, works only if the client drives the phase itself).
 """
@@ -699,6 +702,57 @@ def _advance_inplace(session, state: ChallengeState, phase: Phase) -> Transition
     return Transition(before=before, after=after)
 
 
+def _advance_sync(session, state: ChallengeState, phase: Phase) -> Transition:
+    """Reference phase switch: tell the client the server scene changed.
+
+    LunarCore ``ChallengeInstance.advanceStage`` (and every 4.x server that gets
+    下半 to work) does **not** patch maze groups entity-by-entity.  It sends
+
+    1. ``ChallengeLineupNotify`` for the new extra lineup,
+    2. ``SyncServerSceneChangeNotify`` — the client drops its arena state and
+       re-runs its own phase entry (4.7.0 真机：advance 之后客户端确实会自己
+       重载 stage，`AdventurePhase._EnterStep2` → `Map._LoadStage`),
+    3. a full ``SceneInfo`` through ``EnterSceneByServerScNotify`` whose
+       ``entity_group_list`` declares the new half's maze group.
+
+    Patching groups with ``SceneGroupRefreshScNotify`` is what broke 4.7.0: the
+    client runs ``MapDef._ActiveServerHoyoGroup`` on a group it never declared
+    (``_OnSceneGroupRefreshScNotify`` → NRE), so the arena keeps the visual NPC
+    but never becomes attackable and no ``SceneCastSkillCsReq`` is sent.
+    """
+    state.index = phase.index
+    scene = _apply_phase_scene(session, state)
+    lineup = lineup_info(session)
+    # 阵容包在结果包之前（客户端还停在战斗态时就会处理，和场景模式一致）；
+    # 场景切换包在结果包之后，顺序与 LunarCore 的 advanceStage 一致。
+    before = [
+        pb.ChallengeLineupNotify(extra_lineup_type=phase.lineup_type),
+        pb.SyncLineupNotify(lineup=lineup),
+    ]
+    after = [
+        pb.SyncServerSceneChangeNotify(),
+        pb.EnterSceneByServerScNotify(
+            reason=pb.EnterSceneReason.Value("ENTER_SCENE_REASON_NONE"),
+            lineup=lineup,
+            scene=scene,
+        ),
+    ]
+    session.runtime.logger.info(
+        "challenge advance (sync): id=%d phase=%d->%d scene=%d/%d entry=%d"
+        " group=%d stage=%d team=%s",
+        state.challenge_id,
+        phase.index,
+        phase.index + 1,
+        phase.node.plane_id,
+        phase.node.floor_id,
+        phase.node.entrance_id,
+        phase.node.maze_group_id,
+        phase.stage_id,
+        phase.team,
+    )
+    return Transition(before=before, after=after, new_scene=True)
+
+
 def advance(session, *, mode: str | None = None) -> Transition:
     """Switch the attempt to its next phase; returns the packets to send.
 
@@ -709,7 +763,7 @@ def advance(session, *, mode: str | None = None) -> Transition:
     state = getattr(session, "challenge", None)
     if state is None or not state.has_next:
         return Transition()
-    mode = (mode or session.runtime.cfg.endgame.advance or "inplace").lower()
+    mode = (mode or session.runtime.cfg.endgame.advance or "sync").lower()
     if mode in ("client", "none"):
         session.runtime.logger.info(
             "challenge advance: waiting for client (advance=%s)", mode
@@ -717,6 +771,8 @@ def advance(session, *, mode: str | None = None) -> Transition:
         return Transition()
 
     phase = state.phases[state.index + 1]
+    if mode == "sync":
+        return _advance_sync(session, state, phase)
     same_scene = (
         int(phase.node.plane_id) == int(session.scene.plane_id)
         and int(phase.node.floor_id) == int(session.scene.floor_id)

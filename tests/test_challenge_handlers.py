@@ -376,6 +376,42 @@ class ChallengeHandlersTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(kinds, ["EnterSceneScRsp", "EnterSceneByServerScNotify"])
         self.assertEqual(self.session.scene.entry_id, 100000104)
 
+    async def test_reenter_scene_during_challenge_keeps_phase_scene(self) -> None:
+        """挑战中客户端重进同一入口 → 回**当前半场**的挑战场景，不是野外场景。
+
+        `advance=sync` 发完 `SyncServerSceneChangeNotify` 之后客户端会自己再走一遍
+        进场（可能发 `EnterSceneCsReq`）。这条如果落到野外场景装配，下半的迷宫组
+        和队伍会被冲掉。
+        """
+        await challenge_handlers.on_start_challenge(
+            self.session,
+            pb.StartChallengeCsReq(
+                challenge_id=1101,
+                avatar_lineup_first=self._lineup(1506, 1501),
+                avatar_lineup_second=self._lineup(1414, 1502),
+            ),
+        )
+        node1 = self.rt.endgame.challenge(1101).node1
+        self.sent.clear()
+        rsp = await scene_handlers.on_enter_scene(
+            self.session,
+            pb.EnterSceneCsReq(entry_id=node1.entrance_id),
+        )
+        self.assertIsNone(rsp)
+        kinds = [type(message).__name__ for message in self.sent]
+        self.assertEqual(kinds, ["EnterSceneScRsp", "EnterSceneByServerScNotify"])
+        scene = self.sent[1].scene
+        self.assertEqual(scene.entry_id, node1.entrance_id)
+        group_ids = [group.group_id for group in scene.entity_group_list]
+        self.assertIn(node1.maze_group_id, group_ids)
+        self.assertEqual(
+            self.sent[1].lineup.extra_lineup_type,
+            pb.ExtraLineupType.ExtraLineupType_LineupChallenge,
+        )
+        # 挑战状态没被这次重进改掉
+        self.assertEqual(self.session.challenge.stage, 1)
+        self.assertEqual(self.session.challenge.node.maze_group_id, node1.maze_group_id)
+
     async def test_second_lineup_is_kept_for_lower_half(self) -> None:
         """The pre-battle 队伍配置 sends both lineups; 下半 must use the second."""
         rsp = await challenge_handlers.on_start_challenge(
@@ -613,6 +649,85 @@ class ChallengeHandlersTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(state.stage, 2)
         self.assertTrue(state.second)
         self.assertEqual(state.stage_id, node2.stage_id)
+        self.assertEqual(
+            state.avatars,
+            [self.rt.roster.base_id(1414), self.rt.roster.base_id(1502)],
+        )
+
+    async def test_advance_sync_uses_reference_packets(self) -> None:
+        """``advance=sync``（默认）：LunarCore ``advanceStage`` 的包顺序。
+
+        ``ChallengeLineupNotify`` → ``PVEBattleResultScRsp`` →
+        ``SyncServerSceneChangeNotify`` + ``SyncLineupNotify`` +
+        ``EnterSceneByServerScNotify``（整份新 ``SceneInfo``，``entity_group_list``
+        里声明下半的迷宫组）。
+
+        关键点：**一条 ``SceneGroupRefreshScNotify`` 都不发**。4.7.0 客户端收到
+        “激活一个它没声明过的组”的通知会走 ``MapDef._ActiveServerHoyoGroup`` 并
+        NRE，下半就只剩一个看得见、打不动的 NPC。
+        """
+        self.rt.cfg.endgame.advance = "sync"
+        await challenge_handlers.on_start_challenge(
+            self.session,
+            pb.StartChallengeCsReq(
+                challenge_id=1101,
+                avatar_lineup_first=self._lineup(1506, 1501),
+                avatar_lineup_second=self._lineup(1414, 1502),
+            ),
+        )
+        battle = await scene_handlers.on_cast_skill(
+            self.session, pb.SceneCastSkillCsReq(cast_entity_id=1)
+        )
+        self.sent.clear()
+        await battle_handlers.on_pve_result(
+            self.session,
+            pb.PVEBattleResultCsReq(
+                battle_id=battle.battle_info.battle_id,
+                stage_id=battle.battle_info.stage_id,
+                end_status=pb.BattleEndStatus.Value("BATTLE_END_WIN"),
+            ),
+        )
+        kinds = [type(message).__name__ for message in self.sent]
+        self.assertEqual(kinds[0], "ChallengeLineupNotify")
+        self.assertEqual(
+            self.sent[0].extra_lineup_type,
+            pb.ExtraLineupType.ExtraLineupType_LineupChallenge2,
+        )
+        rsp_index = kinds.index("PVEBattleResultScRsp")
+        # 阵容包在结果包前，场景切换包在结果包后（LunarCore advanceStage 顺序）
+        self.assertEqual(kinds[:rsp_index], ["ChallengeLineupNotify", "SyncLineupNotify"])
+        self.assertEqual(
+            kinds[rsp_index + 1 :],
+            ["SyncServerSceneChangeNotify", "EnterSceneByServerScNotify"],
+        )
+        self.assertNotIn("SceneGroupRefreshScNotify", kinds)
+        self.assertNotIn("ChallengeSettleNotify", kinds)
+
+        node2 = self.rt.endgame.challenge(1101).node2
+        scene = self.sent[-1].scene
+        self.assertEqual(scene.entry_id, node2.entrance_id)
+        groups = {group.group_id: group for group in scene.entity_group_list}
+        self.assertIn(node2.maze_group_id, groups)
+        monsters = [entity for entity in groups[node2.maze_group_id].entity_list]
+        self.assertTrue(monsters)
+        self.assertEqual(monsters[0].npc_monster.event_id, node2.stage_id)
+        # 场上角色组必须是第二队（否则客户端把上半那队站在下半场地里）
+        avatar_group = groups[self.rt.cfg.world.avatar_group_id]
+        self.assertEqual(len(avatar_group.entity_list), 2)
+
+        state = self.session.challenge
+        self.assertEqual(state.index, 1)
+        self.assertEqual(state.stage, 2)
+        self.assertTrue(state.second)
+        self.assertEqual(state.stage_id, node2.stage_id)
+        self.assertEqual(
+            state.monster_entity_id,
+            next(
+                entity.entity_id
+                for entity in monsters
+                if entity.HasField("npc_monster")
+            ),
+        )
         self.assertEqual(
             state.avatars,
             [self.rt.roster.base_id(1414), self.rt.roster.base_id(1502)],

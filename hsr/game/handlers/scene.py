@@ -237,6 +237,35 @@ async def on_enter_scene(session: Session, req: pb.EnterSceneCsReq) -> pb.EnterS
             scene_identifier=state.identifier,
         )
     lobby_plane = int(entrance["plane_id"]) in runtime.endgame.lobbies
+    challenge = getattr(session, "challenge", None)
+    if challenge is not None and int(entry_id) == int(state.entry_id):
+        # 挑战进行中客户端重进同一个入口（`advance` 发完 SyncServerSceneChangeNotify
+        # 之后它会自己再走一遍进场）：必须把**当前半场**的挑战场景发回去，
+        # 否则会被下面的野外场景装配冲掉，下半的怪和队伍全没了。
+        runtime.logger.info(
+            "enter scene during challenge (re-push current phase): entry=%d"
+            " phase=%d/%d group=%d",
+            entry_id,
+            challenge.index + 1,
+            len(challenge.phases),
+            challenge.node.maze_group_id,
+        )
+        await session.send(
+            pb.EnterSceneScRsp(
+                retcode=0,
+                is_over_map=True,
+                is_close_map=req.is_close_map,
+                scene_identifier=state.identifier,
+            )
+        )
+        await session.send(
+            pb.EnterSceneByServerScNotify(
+                reason=pb.EnterSceneReason.Value("ENTER_SCENE_REASON_NONE"),
+                lineup=challenge_service.lineup_info(session),
+                scene=scene_service.build_scene(session),
+            )
+        )
+        return None
     if lobby_plane and not overridden and lobby_teleport_blocked(session):
         runtime.logger.warning(
             "lobby teleport ignored: entry=%d plane=%d (client hard-locks on"
