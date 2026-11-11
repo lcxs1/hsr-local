@@ -39,6 +39,7 @@ def build_runtime(tmp: Path) -> Runtime:
     cfg.endgame.advance = "scene"
     cfg.endgame.lobby_entry = 0
     cfg.endgame.lobby_props = "all"
+    cfg.endgame.lobby_grace_seconds = 0.0
     cfg.endgame.send_max_level = False
     registry = Registry(ROOT / "proto")
     router = Router(cfg, registry, log)

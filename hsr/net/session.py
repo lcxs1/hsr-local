@@ -45,6 +45,9 @@ class Session:
         self.conv_key = conv_key
         self.closed = False
         self.last_recv = time.monotonic()
+        # 客户端连上来的时刻：玩家登录后多久点「传送」要靠它算（见
+        # EndgameSettings.lobby_grace_seconds 的 4.7.0 真机数据）。
+        self.created_at = self.last_recv
 
         self.kcp = KCP(kcp_conv)
         self.kcp.output = self._output

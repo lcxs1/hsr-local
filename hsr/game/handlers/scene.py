@@ -6,6 +6,8 @@ next ``GetCurSceneInfo`` / lineup refresh does not snap the team back to spawn.
 
 from __future__ import annotations
 
+import asyncio
+import time
 from typing import TYPE_CHECKING
 
 from hsr.game.services import challenge as challenge_service
@@ -144,6 +146,22 @@ async def on_cast_skill_cost_mp(
     return pb.SceneCastSkillCostMpScRsp(cast_entity_id=req.cast_entity_id)
 
 
+def scene_push_delay(session) -> float:
+    """登录后多少秒内点「传送」要把场景推送压后（0 = 不用压）。
+
+    4.7.0 真机：登录后 18 s / 14 s 两次传送都卡在客户端
+    ``MapNPC:*-400001 / MapNpcDef.get_ConfigEntityPath``；113 s 那次正常。
+    参数见 ``EndgameSettings.lobby_grace_seconds``。
+    """
+    grace = float(
+        getattr(session.runtime.cfg.endgame, "lobby_grace_seconds", 0) or 0
+    )
+    if grace <= 0:
+        return 0.0
+    elapsed = time.monotonic() - float(getattr(session, "created_at", 0.0) or 0.0)
+    return max(0.0, grace - elapsed)
+
+
 async def on_enter_scene(session: Session, req: pb.EnterSceneCsReq) -> pb.EnterSceneScRsp | None:
     """``EnterSceneCsReq``: teleport / scene switch (guide 传送, challenge lobby).
 
@@ -207,13 +225,29 @@ async def on_enter_scene(session: Session, req: pb.EnterSceneCsReq) -> pb.EnterS
             scene_identifier=identifier,
         )
     )
-    await session.send(
-        pb.EnterSceneByServerScNotify(
-            reason=pb.EnterSceneReason.Value("ENTER_SCENE_REASON_NONE"),
-            lineup=lineup_service.build_lineup(session),
-            scene=scene,
-        )
+    notify = pb.EnterSceneByServerScNotify(
+        reason=pb.EnterSceneReason.Value("ENTER_SCENE_REASON_NONE"),
+        lineup=lineup_service.build_lineup(session),
+        scene=scene,
     )
+    delay = scene_push_delay(session)
+    if delay > 0:
+        # 客户端刚登录时自己的场景加载态还没就绪，这时候推场景会在
+        # `AdventurePhase._EnterStep2` 里撞上 `MapNPC:*-400001` 的 NRE 硬卡。
+        # 回包立刻给（客户端进度条不至于超时），场景晚点推。
+        runtime.logger.info(
+            "enter scene: hold scene push %.1fs (client still loading after login)",
+            delay,
+        )
+
+        async def _push_later() -> None:
+            await asyncio.sleep(delay)
+            if not session.closed:
+                await session.send(notify)
+
+        asyncio.create_task(_push_later())
+    else:
+        await session.send(notify)
     runtime.logger.info(
         "enter scene: entry=%d plane=%d floor=%d",
         entry_id,

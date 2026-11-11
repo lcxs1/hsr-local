@@ -271,6 +271,51 @@ class LobbySceneTest(unittest.IsolatedAsyncioTestCase):
 
 
 
+class LobbyGraceTest(unittest.IsolatedAsyncioTestCase):
+    """登录后马上传送要压后场景推送（4.7.0 真机三次采样的时间差）。"""
+
+    async def asyncSetUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.session = build_session(Path(self.tmp.name))
+        self.rt = self.session.runtime
+        self.sent: list = []
+
+        async def record(msg, name=None) -> None:  # noqa: ANN001
+            self.sent.append(msg)
+
+        self.session.send = record  # type: ignore[method-assign]
+
+    async def asyncTearDown(self) -> None:
+        await self.session.close("test")
+        self.tmp.cleanup()
+
+    async def test_delay_math(self) -> None:
+        import time as _time
+
+        self.rt.cfg.endgame.lobby_grace_seconds = 30.0
+        self.session.created_at = _time.monotonic()
+        self.assertGreater(scene_handlers.scene_push_delay(self.session), 29.0)
+        self.session.created_at = _time.monotonic() - 60.0
+        self.assertEqual(scene_handlers.scene_push_delay(self.session), 0.0)
+        self.rt.cfg.endgame.lobby_grace_seconds = 0.0
+        self.assertEqual(scene_handlers.scene_push_delay(self.session), 0.0)
+
+    async def test_scene_push_is_held_then_sent(self) -> None:
+        import asyncio
+
+        self.rt.cfg.endgame.lobby_grace_seconds = 0.05
+        await scene_handlers.on_enter_scene(
+            self.session,
+            pb.EnterSceneCsReq(entry_id=100000104, is_close_map=False),
+        )
+        names = [type(message).__name__ for message in self.sent]
+        self.assertIn("EnterSceneScRsp", names)
+        self.assertNotIn("EnterSceneByServerScNotify", names)
+        await asyncio.sleep(0.15)
+        names = [type(message).__name__ for message in self.sent]
+        self.assertIn("EnterSceneByServerScNotify", names)
+
+
 if __name__ == "__main__":
     unittest.main()
 

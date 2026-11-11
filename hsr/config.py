@@ -103,6 +103,13 @@ class EndgameSettings(BaseModel):
     # 都是这个值，pearl-sr 离开 Peak 时也回这里。4.6.54 的 100000104 里有
     # ConfigEntityPath 为空的 MapNPC:227-400001，会卡死传送，换一间车厢试试。
     lobby_entry: int = 0
+    # 登录后多少秒内点「传送」要压着场景推送，等客户端自己的场景加载态就绪再发。
+    # 4.7.0 真机三组数据（同版本、同入口）：
+    #   登录后 18 s 传送 -> 卡死；113 s 传送 -> 正常；14 s 传送 -> 卡死。
+    # 卡死栈固定是 `MapNPC:227-400001 / MapNpcDef.get_ConfigEntityPath` NRE，
+    # 属客户端加载期的竞态，服务端只能错开时间：EnterSceneScRsp 立刻回，
+    # `EnterSceneByServerScNotify` 延迟到登录后这么久再推。0 = 不延迟。
+    lobby_grace_seconds: float = 25.0
     group_list: Literal["all", "rewards"] = "all"
     send_max_level: bool = False
 
