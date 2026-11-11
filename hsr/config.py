@@ -97,6 +97,12 @@ class EndgameSettings(BaseModel):
     # 4.6.54 的 MapNPC:227-400001 ConfigEntityPath 为空，一旦被创建就在
     # AdventurePhase._EnterStep2 里 NRE，传送进度条卡死；装饰组带这个 NPC。
     lobby_props: Literal["all", "crystals", "none"] = "all"
+    # 指导「传送」进忘却之庭时用哪个入口（0 = 用客户端请求的 100000104）。
+    # 参考实现里终局大厅用的是 100000352 / floor 10000003（观景车厢）：
+    # DanhengServer CHALLENGE_PEAK_ENTRANCE、LunarCore CHALLENGE_PEAK_ENTRANCE
+    # 都是这个值，pearl-sr 离开 Peak 时也回这里。4.6.54 的 100000104 里有
+    # ConfigEntityPath 为空的 MapNPC:227-400001，会卡死传送，换一间车厢试试。
+    lobby_entry: int = 0
     group_list: Literal["all", "rewards"] = "all"
     send_max_level: bool = False
 

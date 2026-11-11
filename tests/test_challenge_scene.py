@@ -4,7 +4,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from hsr.game.handlers import scene as scene_handlers
 from hsr.game.services import scene as scene_service
+from hsr.protocol.gen import StarRail_pb2 as pb
 from tests.support import build_session
 
 
@@ -217,6 +219,22 @@ class LobbySceneTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(
             all(p.prop.prop_id >= scene_service.LOBBY_CRYSTAL_PROP_MIN for p in props)
         )
+
+    async def test_lobby_entry_override(self) -> None:
+        """[endgame] lobby_entry 把 100000104 的传送改到参考实现的 100000352。"""
+        self.rt.cfg.endgame.lobby_entry = 100000352
+        try:
+            await scene_handlers.on_enter_scene(
+                self.session,
+                pb.EnterSceneCsReq(
+                    entry_id=100000104,
+                    scene_identifier=pb.SceneIdentifier(floor_id=10000000),
+                ),
+            )
+        finally:
+            self.rt.cfg.endgame.lobby_entry = 0
+        self.assertEqual(self.session.scene.entry_id, 100000352)
+        self.assertEqual(self.session.scene.floor_id, 10000003)
 
     async def test_lobby_props_none(self) -> None:
         self.rt.cfg.endgame.lobby_props = "none"

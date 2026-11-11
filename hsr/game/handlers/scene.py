@@ -156,7 +156,18 @@ async def on_enter_scene(session: Session, req: pb.EnterSceneCsReq) -> pb.EnterS
     state = session.scene
     entry_id = int(req.entry_id) or state.entry_id
     runtime = session.runtime
-    entrance = runtime.endgame.entrance(entry_id)
+    override_entry = int(getattr(runtime.cfg.endgame, "lobby_entry", 0) or 0)
+    requested = runtime.endgame.entrance(entry_id)
+    overridden = False
+    if (
+        override_entry
+        and requested is not None
+        and int(requested["plane_id"]) == 10000
+    ):
+        entry_id = override_entry
+        requested = runtime.endgame.entrance(entry_id)
+        overridden = True
+    entrance = requested
     if entrance is None:
         if entry_id != state.entry_id:
             runtime.logger.info(
@@ -173,8 +184,10 @@ async def on_enter_scene(session: Session, req: pb.EnterSceneCsReq) -> pb.EnterS
         # 服务端要把场景重新下发一遍客户端才会重载。2026-11-11 真机踩到。
         runtime.logger.info("enter scene (re-enter): entry=%d", entry_id)
     floor_id = (
-        int(req.scene_identifier.floor_id) if req.HasField("scene_identifier") else 0
-    ) or entrance["floor_id"]
+        0
+        if overridden
+        else (int(req.scene_identifier.floor_id) if req.HasField("scene_identifier") else 0)
+    ) or int(entrance["floor_id"])
     scene = scene_service.enter_scene(
         session,
         plane_id=entrance["plane_id"],

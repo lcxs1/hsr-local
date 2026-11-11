@@ -35,6 +35,11 @@ class _Transport:
 def build_runtime(tmp: Path) -> Runtime:
     """Runtime with the real config/freesr/endgame data and temp save/prefs."""
     cfg = AppConfig.load()
+    # 单测不跟随 config.toml 里的真机探针开关（每次探针都会改它们）。
+    cfg.endgame.advance = "scene"
+    cfg.endgame.lobby_entry = 0
+    cfg.endgame.lobby_props = "all"
+    cfg.endgame.send_max_level = False
     registry = Registry(ROOT / "proto")
     router = Router(cfg, registry, log)
     register_all(router)
