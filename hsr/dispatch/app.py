@@ -311,15 +311,13 @@ def create_app(rt: Runtime) -> FastAPI:
     # **当前场景**里——走过去按 F 一样能打开混沌回忆界面，然后走正常的
     # StartChallengeTierce 流程（那条链已经在真机上打过节点一）。
     CRYSTAL_PROPS = (
-        (142, 100083, "混沌回忆"),
-        (153, 101028, "虚构叙事"),
-        (276, 100018, "末日幻影"),
+        (100083, "混沌回忆"),
+        (101028, "虚构叙事"),
+        (100018, "末日幻影"),
     )
 
     @app.get("/debug/crystal")
-    async def debug_crystal():
-        from hsr.game.services import scene as scene_service
-
+    async def debug_crystal(group: int = 0):
         sessions = rt.sessions()
         if not sessions:
             return JSONResponse(
@@ -327,49 +325,53 @@ def create_app(rt: Runtime) -> FastAPI:
             )
         session = sessions[-1]
         state = session.scene
+        # 客户端只认**地板里真实存在**的组（真机 21:49：往组 142 里加实体，客户端报
+        # `_RefreshGroup but runtimeGroup not found. 20313001, 142`）。所以默认塞进
+        # 当前场景的凝滞虚影组（世界场景一定有它），而不是大厅里的 142/153/276。
+        group_id = int(group or rt.cfg.world.calyx_group_id or 186)
         x, y, z = state.position
-        # 三颗水晶横排在玩家前方 2 米处（坐标单位是 1/1000 米，和 world.json 一致）。
-        entities = []
-        for index, (group_id, prop_id, label) in enumerate(CRYSTAL_PROPS):
-            entities.append(
-                pb.SceneEntityInfo(
-                    group_id=group_id,
-                    inst_id=300001 + index,
-                    entity_id=2100 + index,
-                    prop=pb.ScenePropInfo(prop_id=prop_id, prop_state=0),
-                    motion=pb.MotionInfo(
-                        pos_index=pb.Vector(x=x + (index - 1) * 1500, y=y, z=z + 2000),
-                        rot_index=pb.Vector(x=0, y=0, z=0),
-                    ),
-                )
+        entities = [
+            pb.SceneEntityInfo(
+                group_id=group_id,
+                inst_id=300001 + index,
+                entity_id=2100 + index,
+                prop=pb.ScenePropInfo(prop_id=prop_id, prop_state=0),
+                motion=pb.MotionInfo(
+                    pos_index=pb.Vector(x=x + (index - 1) * 1200, y=y, z=z + 1800),
+                    rot_index=pb.Vector(x=0, y=0, z=0),
+                ),
             )
+            for index, (prop_id, _label) in enumerate(CRYSTAL_PROPS)
+        ]
         notify = pb.SceneGroupRefreshScNotify(
             floor_id=state.floor_id,
             dimension_id=state.dimension_id,
             group_refresh_list=[
                 pb.GroupRefreshInfo(
-                    group_id=entity.group_id,
+                    group_id=group_id,
                     state=1,
                     refresh_type=pb.SceneGroupRefreshType.SCENE_GROUP_REFRESH_TYPE_LOADED,
-                    refresh_entity=[pb.SceneEntityRefreshInfo(add_entity=entity)],
+                    refresh_entity=[
+                        pb.SceneEntityRefreshInfo(add_entity=entity) for entity in entities
+                    ],
                 )
-                for entity in entities
             ],
         )
         await session.send(notify)
         rt.logger.info(
-            "debug crystal: spawned %d challenge props in scene %d/%d at %s",
+            "debug crystal: spawned %d challenge props into group %d of scene %d/%d at %s",
             len(entities),
+            group_id,
             state.plane_id,
             state.floor_id,
             (x, y, z),
         )
         return {
             "ok": True,
+            "group": group_id,
             "plane": state.plane_id,
             "floor": state.floor_id,
-            "props": [{"group": group, "prop": prop, "label": label}
-                      for group, prop, label in CRYSTAL_PROPS],
+            "props": [{"prop": prop, "label": label} for prop, label in CRYSTAL_PROPS],
         }
 
     # ------------------------------------------------ SR Tools freesr bridge
