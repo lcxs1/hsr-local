@@ -255,14 +255,43 @@ def create_app(rt: Runtime) -> FastAPI:
             return JSONResponse(
                 {"ok": False, "error": f"unknown challenge {id}"}, status_code=404
             )
+        state = session.challenge
+        # 探针（2026-11-11 真机）：只推 EnterSceneByServer 时客户端能进 arena、能走路，
+        # 但**没有 HUD、不能攻击**——它只有在收到自己请求的 StartChallenge*ScRsp 时才
+        # 建立“我在挑战中”的状态。这里把应答当主动包也发一遍，看能不能把 HUD 挂上。
+        if state is not None and getattr(state, "tierce", False):
+            await session.send(
+                pb.StartChallengeTierceScRsp(
+                    retcode=0,
+                    scene=scene,
+                    cur_tierce_challenge=pb.CurTierceChallenge(
+                        challenge_id=state.challenge_id,
+                        stage_index=state.stage_index,
+                        lineup_list=challenge_service.lineups(session),
+                    ),
+                )
+            )
+        else:
+            await session.send(
+                pb.StartChallengeScRsp(
+                    retcode=0,
+                    scene=scene,
+                    cur_challenge=challenge_service.cur_challenge(session),
+                    lineup_list=challenge_service.lineups(session),
+                )
+            )
+        lineup = challenge_service.lineup_info(session)
+        await session.send(
+            pb.ChallengeLineupNotify(extra_lineup_type=lineup.extra_lineup_type)
+        )
+        await session.send(pb.SyncLineupNotify(lineup=lineup))
         await session.send(
             pb.EnterSceneByServerScNotify(
                 reason=pb.EnterSceneReason.Value("ENTER_SCENE_REASON_NONE"),
-                lineup=challenge_service.lineup_info(session),
+                lineup=lineup,
                 scene=scene,
             )
         )
-        state = session.challenge
         rt.logger.info(
             "debug challenge: pushed arena for id=%d stage=%d", id, state.stage_id
         )
@@ -272,6 +301,75 @@ def create_app(rt: Runtime) -> FastAPI:
             "stage": state.stage_id,
             "plane": scene.plane_id,
             "floor": scene.floor_id,
+        }
+
+    # ---------------------------------------- 模拟器口径：把挑战水晶搬到身边
+    # 大厅那条路的死结：客户端加载车厢 floor 时会去建一个配置残缺的
+    # ``MapNPC:227-400001``（``MapNpcDef.get_ConfigEntityPath`` NRE），约三成概率
+    # 直接卡死加载条；而"服务端硬推 arena"客户端又不认（没有 HUD、不能攻击）。
+    # 折中：水晶本身只是个可交互道具，服务端可以把同样的 prop 实体放到玩家
+    # **当前场景**里——走过去按 F 一样能打开混沌回忆界面，然后走正常的
+    # StartChallengeTierce 流程（那条链已经在真机上打过节点一）。
+    CRYSTAL_PROPS = (
+        (142, 100083, "混沌回忆"),
+        (153, 101028, "虚构叙事"),
+        (276, 100018, "末日幻影"),
+    )
+
+    @app.get("/debug/crystal")
+    async def debug_crystal():
+        from hsr.game.services import scene as scene_service
+
+        sessions = rt.sessions()
+        if not sessions:
+            return JSONResponse(
+                {"ok": False, "error": "no live session (log in first)"}, status_code=409
+            )
+        session = sessions[-1]
+        state = session.scene
+        x, y, z = state.position
+        # 三颗水晶横排在玩家前方 2 米处（坐标单位是 1/1000 米，和 world.json 一致）。
+        entities = []
+        for index, (group_id, prop_id, label) in enumerate(CRYSTAL_PROPS):
+            entities.append(
+                pb.SceneEntityInfo(
+                    group_id=group_id,
+                    inst_id=300001 + index,
+                    entity_id=2100 + index,
+                    prop=pb.ScenePropInfo(prop_id=prop_id, prop_state=0),
+                    motion=pb.MotionInfo(
+                        pos_index=pb.Vector(x=x + (index - 1) * 1500, y=y, z=z + 2000),
+                        rot_index=pb.Vector(x=0, y=0, z=0),
+                    ),
+                )
+            )
+        notify = pb.SceneGroupRefreshScNotify(
+            floor_id=state.floor_id,
+            dimension_id=state.dimension_id,
+            group_refresh_list=[
+                pb.GroupRefreshInfo(
+                    group_id=entity.group_id,
+                    state=1,
+                    refresh_type=pb.SceneGroupRefreshType.SCENE_GROUP_REFRESH_TYPE_LOADED,
+                    refresh_entity=[pb.SceneEntityRefreshInfo(add_entity=entity)],
+                )
+                for entity in entities
+            ],
+        )
+        await session.send(notify)
+        rt.logger.info(
+            "debug crystal: spawned %d challenge props in scene %d/%d at %s",
+            len(entities),
+            state.plane_id,
+            state.floor_id,
+            (x, y, z),
+        )
+        return {
+            "ok": True,
+            "plane": state.plane_id,
+            "floor": state.floor_id,
+            "props": [{"group": group, "prop": prop, "label": label}
+                      for group, prop, label in CRYSTAL_PROPS],
         }
 
     # ------------------------------------------------ SR Tools freesr bridge
