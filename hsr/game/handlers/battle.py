@@ -10,6 +10,8 @@ import time
 from typing import TYPE_CHECKING
 
 from hsr.game.services import challenge as challenge_service
+from hsr.game.services import lineup as lineup_service
+from hsr.game.services import scene as scene_service
 from hsr.protocol.gen import StarRail_pb2 as pb
 
 if TYPE_CHECKING:
@@ -183,8 +185,31 @@ async def on_pve_result(session: Session, req: pb.PVEBattleResultCsReq) -> pb.PV
             await _enter_second_half(session)
             return None
         await session.send(challenge_service.settle_notify(session, win=won))
+        if getattr(challenge, "direct", False):
+            await _leave_direct(session)
         return None
     return rsp
+
+
+async def _leave_direct(session: Session) -> None:
+    """Return a ``/debug/challenge`` attempt to the open world.
+
+    The client never started this through the lobby, so it has no
+    ``LeaveChallenge`` button; the server has to send the world scene itself.
+    """
+    challenge_service.clear(session)
+    session.lobby_return = None
+    session.scene = scene_service.SceneState.from_config(session.runtime.cfg.world)
+    scene = scene_service.build_scene(session)
+    await session.send(pb.QuitBattleScNotify())
+    await session.send(
+        pb.EnterSceneByServerScNotify(
+            reason=pb.EnterSceneReason.Value("ENTER_SCENE_REASON_NONE"),
+            lineup=lineup_service.build_lineup(session),
+            scene=scene,
+        )
+    )
+    session.runtime.logger.info("challenge direct start: returned to open world")
 
 
 

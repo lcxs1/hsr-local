@@ -219,6 +219,61 @@ def create_app(rt: Runtime) -> FastAPI:
             "srtools": "/srtools",
         }
 
+    # ------------------------------------------------ 模拟器口径：直接选关开打
+    # 忘却之庭大厅在 4.6.54 beta 客户端上会卡死（MapNPC:NNN-400001 没有
+    # ConfigEntityPath），参考实现（pearl-sr 的 /id）本来就不走大厅：直接把
+    # challenge id 告诉服务端。这里用 HTTP 做同一件事：
+    #   GET /debug/challenge            列出当前赛季的层和 challenge id
+    #   GET /debug/challenge?id=5512    把玩家直接送进那一层的 arena
+    @app.get("/debug/challenge")
+    async def debug_challenge(id: int = 0):  # noqa: A002 - query parameter name
+        from hsr.game.services import challenge as challenge_service
+
+        sessions = rt.sessions()
+        if not sessions:
+            return JSONResponse(
+                {"ok": False, "error": "no live session (log in first)"}, status_code=409
+            )
+        session = sessions[-1]
+        endgame = rt.endgame
+        group_id = int(cfg.endgame.moc_group_id or 0) or endgame.active_group("MOC")
+        if not id:
+            season = endgame.season(group_id)
+            floors = sorted(
+                (challenge.id, challenge.floor)
+                for challenge in endgame.challenges.values()
+                if challenge.group_id == group_id
+            )
+            return {
+                "ok": True,
+                "active_group": group_id,
+                "season": season.name if season else "",
+                "floors": [{"id": cid, "floor": floor} for cid, floor in floors],
+            }
+        scene = challenge_service.start_direct(session, id)
+        if scene is None:
+            return JSONResponse(
+                {"ok": False, "error": f"unknown challenge {id}"}, status_code=404
+            )
+        await session.send(
+            pb.EnterSceneByServerScNotify(
+                reason=pb.EnterSceneReason.Value("ENTER_SCENE_REASON_NONE"),
+                lineup=challenge_service.lineup_info(session),
+                scene=scene,
+            )
+        )
+        state = session.challenge
+        rt.logger.info(
+            "debug challenge: pushed arena for id=%d stage=%d", id, state.stage_id
+        )
+        return {
+            "ok": True,
+            "challenge": id,
+            "stage": state.stage_id,
+            "plane": scene.plane_id,
+            "floor": scene.floor_id,
+        }
+
     # ------------------------------------------------ SR Tools freesr bridge
     # 「连接设置 → 连接类型 RobinSR → 连接 PS」：浏览器 POST 到本机的 /srtools，
     # body = {"data": <freesr json>, "username": ..., "password": ...}（ppSR 约定）。

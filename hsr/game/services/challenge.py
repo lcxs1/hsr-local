@@ -46,6 +46,9 @@ class ChallengeState:
     mode: str = ""
     node: ChallengeNode = field(default_factory=ChallengeNode)
     second: bool = False
+    # True = 由 ``/debug/challenge`` 直接把玩家丢进 arena（不经忘却之庭大厅）。
+    # 结算后要自己把玩家送回世界场景，因为没有 LeaveChallenge 可走。
+    direct: bool = False
     buff_ids: list[int] = field(default_factory=list)
     # Base avatar ids chosen for this attempt (empty = use the current lineup).
     # 上半与下半是两套队伍：客户端在点水晶后的队伍配置界面里同时下发
@@ -432,6 +435,36 @@ def enter_second_half(session) -> pb.SceneInfo:
         node.floor_id,
         node.entrance_id,
         node.stage_id,
+        team,
+    )
+    return scene
+
+
+def start_direct(session, challenge_id: int) -> pb.SceneInfo | None:
+    """Start a challenge without the 忘却之庭 lobby (debug / 模拟器入口).
+
+    Mirrors pearl-sr's custom stage selection: the server is told the challenge
+    id (``GET /debug/challenge?id=...``) and pushes the arena scene to the
+    client.  Needed because the 4.6.54 beta client hard-locks on a broken
+    map-NPC row (``MapNPC:* -400001`` has no ``ConfigEntityPath``) when it
+    loads the train-car lobby floor, which makes the lobby path unusable.
+    """
+    challenge = session.runtime.endgame.challenge(challenge_id)
+    if challenge is None:
+        return None
+    team = [slot for slot in session.lineup.slots if slot]
+    state, scene = enter(
+        session,
+        challenge.id,
+        avatars=team,
+        first_avatars=team,
+    )
+    state.direct = True
+    session.runtime.logger.info(
+        "challenge direct start: id=%d (%s) stage=%d team=%s",
+        challenge.id,
+        challenge.mode,
+        state.stage_id,
         team,
     )
     return scene

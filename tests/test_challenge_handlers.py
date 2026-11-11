@@ -7,6 +7,7 @@ from pathlib import Path
 from hsr.game.handlers import battle as battle_handlers
 from hsr.game.handlers import challenge as challenge_handlers
 from hsr.game.handlers import scene as scene_handlers
+from hsr.game.services import challenge as challenge_service
 from hsr.game.services import scene as scene_service
 from hsr.protocol.gen import StarRail_pb2 as pb
 from tests.support import build_session
@@ -572,6 +573,40 @@ class ChallengeHandlersTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(rsp.retcode, 0)
         self.assertEqual(self.session.challenge.stage, 2)
+
+    async def test_start_direct_pushes_arena_without_lobby(self) -> None:
+        """模拟器口径的入口：不走忘却之庭，直接把仓库场景推给客户端。"""
+        scene = challenge_service.start_direct(self.session, 1101)
+        self.assertIsNotNone(scene)
+        node = self.rt.endgame.challenge(1101).node1
+        self.assertEqual(scene.plane_id, node.plane_id)
+        self.assertEqual(scene.floor_id, node.floor_id)
+        self.assertTrue(self.session.challenge.direct)
+        cast = await scene_handlers.on_cast_skill(
+            self.session, pb.SceneCastSkillCsReq(cast_entity_id=1)
+        )
+        self.assertTrue(cast.HasField("battle_info"))
+
+    async def test_direct_attempt_returns_to_world_after_settle(self) -> None:
+        challenge_service.start_direct(self.session, 1)  # 单半层，直接结算
+        battle = await scene_handlers.on_cast_skill(
+            self.session, pb.SceneCastSkillCsReq(cast_entity_id=1)
+        )
+        self.sent.clear()
+        await battle_handlers.on_pve_result(
+            self.session,
+            pb.PVEBattleResultCsReq(
+                battle_id=battle.battle_info.battle_id,
+                stage_id=battle.battle_info.stage_id,
+                end_status=pb.BattleEndStatus.Value("BATTLE_END_WIN"),
+            ),
+        )
+        kinds = [type(message).__name__ for message in self.sent]
+        self.assertIn("ChallengeSettleNotify", kinds)
+        self.assertIn("QuitBattleScNotify", kinds)
+        self.assertEqual(kinds[-1], "EnterSceneByServerScNotify")
+        self.assertEqual(self.sent[-1].scene.plane_id, self.rt.cfg.world.plane_id)
+        self.assertIsNone(self.session.challenge)
 
     async def test_stale_first_half_result_is_ignored_after_advance(self) -> None:
         """A duplicate 上半 result must not settle the 下半."""
