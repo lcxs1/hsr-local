@@ -299,6 +299,50 @@ def can_advance(session) -> bool:
     return challenge is not None and challenge.node2 is not None
 
 
+def advance_scene(session) -> pb.SceneInfo:
+    """Rebuild the arena as node2 and return the new ``SceneInfo`` (scene mode).
+
+    Used when ``[endgame] advance = "scene"``: the client is told to re-enter the
+    challenge scene, which is what LunarCore does (``EnterSceneByServerScNotify``)
+    and what our 4.6.54 runs do accept (the player can attack the 下半 monster).
+    """
+    state = session.challenge
+    challenge = session.runtime.endgame.challenge(state.challenge_id)
+    node = challenge.node2
+    team = list(state.second_avatars) or list(state.avatars)
+    scene, monster_entity_id = scene_service.build_challenge_scene(
+        session,
+        plane_id=node.plane_id,
+        floor_id=node.floor_id,
+        entry_id=node.entrance_id,
+        world_id=node.world_id,
+        group_id=node.maze_group_id,
+        monster_id=node.monster_id,
+        stage_id=node.stage_id,
+        avatars=team or None,
+    )
+    state.node = node
+    state.stage_id = node.stage_id
+    state.monster_entity_id = monster_entity_id
+    state.second = True
+    state.stage = 2
+    state.avatars = team
+    state.battle_id = 0
+    state.battle_ids.clear()
+    session.battle_info = None
+    session.runtime.logger.info(
+        "challenge advance (scene): id=%d mode=%s scene=%d/%d entry=%d stage=%d team=%s",
+        state.challenge_id,
+        state.mode,
+        node.plane_id,
+        node.floor_id,
+        node.entrance_id,
+        node.stage_id,
+        team,
+    )
+    return scene
+
+
 def advance_stage(session) -> tuple[pb.SceneGroupRefreshScNotify, pb.LineupInfo]:
     """Switch the active attempt to 下半 (node2) **in place**.
 
@@ -487,6 +531,18 @@ def battle_info(session) -> pb.SceneBattleInfo:
     state.battle_id = battle_id
     state.battle_ids.add(battle_id)
     session.battle_info = info
+    if state.second:
+        # 真机诊断：下半的 battle_info 与上半逐字段对照用（黑屏时先把这行贴出来）。
+        runtime.logger.info(
+            "challenge battle info (下半): stage=%d rounds=%d avatars=%s waves=%s",
+            state.stage_id,
+            info.rounds_limit,
+            [int(avatar.id) for avatar in info.battle_avatar_list],
+            [
+                [int(monster.monster_id) for monster in wave.monster_list]
+                for wave in info.monster_wave_list
+            ],
+        )
     runtime.logger.info(
         "challenge battle info: id=%d challenge=%d mode=%s stage=%d waves=%d"
         " avatars=%d buffs=%d rounds=%d",

@@ -90,17 +90,36 @@ def _group_list(session: Session) -> list[pb.ChallengeGroup]:
 
 
 def _max_level_list(session: Session) -> list[pb.ChallengeHistoryMaxLevel]:
-    """M0 探针：Himeko-Nova-SR 会发 12 层 / 4 层两条，字段语义未确认。
+    """M0 探针：Himeko-Nova-SR 每个挑战发一条 ``ChallengeHistoryMaxLevel``。
 
-    只用于观察“第三张卡”是不是缺它；``[endgame] send_max_level = false`` 时保持
-    现状（一条都不发）。
+    字段语义未确认（看着像“该模式已通关的最高层”）。这里按组的最大层发：
+    回忆组 100 = 15，混沌回忆 12 层组 = 12，PF/AS = 4。用来验证“混沌回忆被锁”
+    是不是缺这个列表（界面上的 `15/15` 提示正对得上）。
+    ``[endgame] send_max_level = false`` 时保持现状（一条都不发）。
     """
     if not session.runtime.cfg.endgame.send_max_level:
         return []
-    return [
-        pb.ChallengeHistoryMaxLevel(level=12, reward_display_type=101212),
-        pb.ChallengeHistoryMaxLevel(level=4, reward_display_type=101404),
-    ]
+    floors_by_group: dict[int, int] = {}
+    for challenge in session.runtime.endgame.challenges.values():
+        if not challenge.group_id:
+            continue
+        floors_by_group[challenge.group_id] = max(
+            floors_by_group.get(challenge.group_id, 0), int(challenge.floor or 0)
+        )
+    # groups without a Floor column (100 / 900) are counted by size instead
+    sizes: dict[int, int] = {}
+    for challenge in session.runtime.endgame.challenges.values():
+        sizes[challenge.group_id] = sizes.get(challenge.group_id, 0) + 1
+    out: list[pb.ChallengeHistoryMaxLevel] = []
+    for challenge in sorted(session.runtime.endgame.challenges.values(), key=lambda c: c.id):
+        level = floors_by_group.get(challenge.group_id, 0) or sizes.get(challenge.group_id, 0)
+        if challenge.mode == "MOC":
+            out.append(
+                pb.ChallengeHistoryMaxLevel(level=level or 12, reward_display_type=101212)
+            )
+        else:
+            out.append(pb.ChallengeHistoryMaxLevel(level=4, reward_display_type=101404))
+    return out
 
 
 def _active_season(session: Session) -> tuple[int, str]:

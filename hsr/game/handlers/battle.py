@@ -87,6 +87,43 @@ async def on_quick_start_cocoon(
     )
 
 
+async def _enter_second_half(session: Session) -> None:
+    """Move the attempt to 下半 according to ``[endgame] advance``.
+
+    * ``scene``   — rebuild node2 and ``EnterSceneByServerScNotify`` (LunarCore).
+      4.6.54 accepts it (the player can reach and attack the 下半 monster).
+    * ``refresh`` — same scene, swap the maze group (DanhengServer).  4.6.54
+      crashes in the client's ``_RefreshGroup_Legacy``, kept for A/B only.
+    * ``none``    — only the result ack; the client must send ``StartChallenge``
+      itself (pearl flow), handled in ``on_start_challenge``.
+    """
+    mode = session.runtime.cfg.endgame.advance
+    if mode == "none":
+        session.runtime.logger.info("challenge advance: skipped (advance=none)")
+        return
+    if mode == "refresh":
+        refresh, lineup = challenge_service.advance_stage(session)
+        await session.send(refresh)
+        await session.send(
+            pb.ChallengeLineupNotify(extra_lineup_type=lineup.extra_lineup_type)
+        )
+        await session.send(pb.SyncLineupNotify(lineup=lineup))
+        return
+    scene = challenge_service.advance_scene(session)
+    lineup = challenge_service.lineup_info(session, second=True)
+    await session.send(
+        pb.ChallengeLineupNotify(extra_lineup_type=lineup.extra_lineup_type)
+    )
+    await session.send(pb.SyncLineupNotify(lineup=lineup))
+    await session.send(
+        pb.EnterSceneByServerScNotify(
+            reason=pb.EnterSceneReason.Value("ENTER_SCENE_REASON_NONE"),
+            lineup=lineup,
+            scene=scene,
+        )
+    )
+
+
 async def on_pve_result(session: Session, req: pb.PVEBattleResultCsReq) -> pb.PVEBattleResultScRsp:
     try:
         end_name = pb.BattleEndStatus.Name(req.end_status)
@@ -143,16 +180,7 @@ async def on_pve_result(session: Session, req: pb.PVEBattleResultCsReq) -> pb.PV
         # stays in the arena and respawns the monster forever.
         await session.send(rsp)
         if won and challenge_service.can_advance(session):
-            # 上半 cleared and the config has a 下半: swap the maze group in
-            # place and move the lineup to LineupChallenge2 (DanhengServer
-            # AdvanceStage / LunarCore advanceStage).  No SceneInfo rebuild — the
-            # client keeps its arena binding and renders the second fight.
-            refresh, lineup = challenge_service.advance_stage(session)
-            await session.send(refresh)
-            await session.send(
-                pb.ChallengeLineupNotify(extra_lineup_type=lineup.extra_lineup_type)
-            )
-            await session.send(pb.SyncLineupNotify(lineup=lineup))
+            await _enter_second_half(session)
             return None
         await session.send(challenge_service.settle_notify(session, win=won))
         return None

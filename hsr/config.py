@@ -84,6 +84,12 @@ class EndgameSettings(BaseModel):
 
     moc_group_id: int = 0
     unlock_all: bool = True
+    # 上半打完怎么进下半（真机 A/B 用，一次只改一个）：
+    #   scene   = 重建 node2 的 SceneInfo，走 EnterSceneByServerScNotify（LunarCore 做法）
+    #   refresh = 同场景原地换实体组，发 SceneGroupRefreshScNotify（DanhengServer 做法；
+    #             4.6.54 客户端在 _RefreshGroup_Legacy 里 NRE，暂不默认）
+    #   none    = 只回 PVEBattleResultScRsp，等客户端自己发 StartChallenge（pearl 流程）
+    advance: Literal["scene", "refresh", "none"] = "scene"
     group_list: Literal["all", "rewards"] = "all"
     send_max_level: bool = False
 

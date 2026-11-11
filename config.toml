@@ -87,12 +87,18 @@ moc_group_id = 0
 # true = 所有层按满星下发（客户端视为已解锁、可重打，pearl-sr 做法，默认 A 口径）
 # false = 没通关历史就发 0 星（会锁住后面的层；通关历史在 M3 落库后再用）
 unlock_all = true
+# 上半打完怎么进下半（真机 A/B 用，一次只改一个）：
+#   scene   = 重建下半场景再 EnterSceneByServerScNotify（LunarCore 做法，默认）
+#   refresh = 同场景原地换实体组 SceneGroupRefreshScNotify（DanhengServer 做法；
+#             4.6.54 客户端在 _RefreshGroup_Legacy 里 NRE，先不用）
+#   none    = 只回战斗结果，等客户端自己发 StartChallenge（pearl 流程）
+advance = "none"
 # M0 真机探针开关：一次只改一个，改完登录看忘却之庭右侧卡片数。
 #   all     = 发全部 109 个组（现状）
 #   rewards = 只发领过星数奖励的组（DanhengServer 写法，新号 = 空列表）
 group_list = "all"
 # true = 额外发 max_level_list（Himeko-Nova-SR 的写法，字段语义未确认）
-send_max_level = false
+send_max_level = true
 
 [features]
 send_hotfix = true
