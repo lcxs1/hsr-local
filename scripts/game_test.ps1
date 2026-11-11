@@ -236,8 +236,9 @@ function Select-Window([object[]]$lines, [string]$from, [string]$to) {
 
 # ------------------------------------------------------------- scenario plan
 $ChallengeSteps = @(
-    '1) 登录后：星际和平指南（或右上角菜单）→ 忘却之庭 → 混沌回忆',
-    '   如果「指导 → 传送」进忘却之庭卡在加载条：别等，直接退出游戏重开，改走指南面板。',
+    '1) 登录后：**不要点任何「传送 / 前往」**（4.7.0 一加载忘却之庭大厅 floor 就会挂：MapNPC:227-400001 NRE）',
+    '   → 打开 星际和平指南 → 忘却之庭 → 混沌回忆（面板是纯 UI，不需要大厅场景）',
+    '   （服务端已经会忽略「传送」到大厅的请求；但别去点，客户端会重载一次场景）',
     '2) 选【第 1 层】（不要选第 12 层：那是 4.7 的星启 3 节点模式，另算）',
     '3) 编队界面：上半一队、下半另一队（两队都放满，方便看换队）→ 开始挑战',
     '4) 上半：走到怪旁边按 F 开打 → 打完。**打完不要动**，等 20 秒看会不会自动进下半',
@@ -258,6 +259,7 @@ $CoreSteps = @(
 # Shots 是“事件后第几秒各拍一张”。
 $ChallengeRules = @(
     @{ Name = 'enter-scene';    Pattern = 'enter scene: entry=(\d+)';                        Shots = @() },
+    @{ Name = 'lobby-ignored';  Pattern = 'lobby teleport ignored';                          Shots = @() },
     @{ Name = 'tierce-start';   Pattern = 'start challenge tierce: id=(\d+)';                Shots = @(0) },
     @{ Name = 'start';          Pattern = 'start challenge: id=(\d+)';                       Shots = @(0) },
     @{ Name = 'battle-info';    Pattern = 'challenge battle info: id=(\d+) .*phase=(\d+)';   Shots = @(0, 4) },
@@ -670,6 +672,20 @@ $verdicts += [pscustomobject]@{
 # 客户端异常
 $nreCount = @($clientExceptions | Where-Object { $_ -match 'NullReference' }).Count
 $verdicts += [pscustomobject]@{ Item = '客户端异常行'; Value = "$($clientExceptions.Count) 种（其中 NRE $nreCount）"; Ok = ($clientExceptions.Count -eq 0) }
+
+# 大厅传送：服务端是否拦下来了 / 客户端是否还是挂了
+$lobbyIgnored = @(Find-Events 'lobby-ignored')
+$mapNpcFails = @($clientExceptions | Where-Object { $_ -match 'MapNPC|MapNpcDef|_EnterStep2' })
+$verdicts += [pscustomobject]@{
+    Item  = '大厅传送：服务端是否拦截'
+    Value = $(if ($lobbyIgnored.Count) { "已拦截 $($lobbyIgnored.Count) 次（应改走指南面板）" } else { '未拦截（旧代码 / scene 模式）' })
+    Ok    = ($lobbyIgnored.Count -gt 0 -or $mapNpcFails.Count -eq 0)
+}
+$verdicts += [pscustomobject]@{
+    Item  = '客户端 MapNPC 加载失败'
+    Value = $(if ($mapNpcFails.Count) { "$($mapNpcFails.Count) 条（大厅 floor 的坏 NPC）" } else { '无' })
+    Ok    = ($mapNpcFails.Count -eq 0)
+}
 
 # --- 报告 -----------------------------------------------------------------
 $report = Join-Path $OutDir "$RunId.report.md"

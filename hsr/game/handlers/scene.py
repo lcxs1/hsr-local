@@ -180,6 +180,32 @@ def scene_push_delay(session) -> float:
     return max(0.0, grace - elapsed)
 
 
+def lobby_teleport_blocked(session) -> bool:
+    """「传送」进忘却之庭大厅会不会把客户端卡死。
+
+    4.6.54 / 4.7.0 **两个客户端**都在加载 plane 10000 的 floor 时挂在一个
+    资源/配置残缺的地图 NPC 上（`[MapNPC:227-400001]`，换到 100000352 变成
+    `[MapNPC:103-400001]`，都报 `MapNpcDef.get_ConfigEntityPath` NRE，随后
+    SDK 弹确认框、会话被关）。这条链服务端补不了（客户端自己的 floor 配置），
+    所以默认**不切场景**：回一个 ``EnterSceneScRsp`` + 当前场景，客户端重载后
+    留在原地，不会硬卡；混沌回忆请从「星际和平指南」面板进。
+
+    ``[endgame] lobby_teleport``：
+      * ``auto``（默认）= 4.7.0 忽略、4.6.54 照旧（老客户端的大厅偶尔能过，
+        15 层闭环就是走大厅打通的）
+      * ``ignore`` = 都忽略
+      * ``scene``  = 都切场景（对照实验用，会卡）
+    """
+    mode = str(getattr(session.runtime.cfg.endgame, "lobby_teleport", "auto")).lower()
+    if mode == "scene":
+        return False
+    if mode == "ignore":
+        return True
+    profile = getattr(getattr(session.runtime, "profile", None), "name", "")
+    profile = profile or str(getattr(session.runtime.cfg.server, "profile", ""))
+    return profile.startswith("4.7")
+
+
 async def on_enter_scene(session: Session, req: pb.EnterSceneCsReq) -> pb.EnterSceneScRsp | None:
     """``EnterSceneCsReq``: teleport / scene switch (guide 传送, challenge lobby).
 
@@ -188,6 +214,11 @@ async def on_enter_scene(session: Session, req: pb.EnterSceneCsReq) -> pb.EnterS
     and answer like pearl-sr: ``EnterSceneScRsp`` first, then
     ``EnterSceneByServerScNotify`` with the new ``SceneInfo``.  Unknown ids keep
     the old single-scene behaviour instead of dumping the player into nothing.
+
+    Teleports into an exported **lobby plane** are ignored when
+    :func:`lobby_teleport_blocked` says so (default on 4.7.0): those floors
+    hard-lock the client on a broken map NPC, and the challenge panel does not
+    need the lobby at all.
     """
     state = session.scene
     entry_id = int(req.entry_id) or state.entry_id
@@ -215,6 +246,30 @@ async def on_enter_scene(session: Session, req: pb.EnterSceneCsReq) -> pb.EnterS
             is_close_map=req.is_close_map,
             scene_identifier=state.identifier,
         )
+    lobby_plane = int(entrance["plane_id"]) in runtime.endgame.lobbies
+    if lobby_plane and not overridden and lobby_teleport_blocked(session):
+        runtime.logger.warning(
+            "lobby teleport ignored: entry=%d plane=%d (client hard-locks on"
+            " MapNPC:*-400001; open 混沌回忆 from the 星际和平指南 panel)",
+            entry_id,
+            int(entrance["plane_id"]),
+        )
+        await session.send(
+            pb.EnterSceneScRsp(
+                retcode=0,
+                is_over_map=True,
+                is_close_map=req.is_close_map,
+                scene_identifier=state.identifier,
+            )
+        )
+        await session.send(
+            pb.EnterSceneByServerScNotify(
+                reason=pb.EnterSceneReason.Value("ENTER_SCENE_REASON_NONE"),
+                lineup=lineup_service.build_lineup(session),
+                scene=scene_service.build_scene(session),
+            )
+        )
+        return None
     if entry_id == state.entry_id:
         # 同一个入口再点一次「传送」（例如回到大厅后还想再传一次）不能让按钮失效：
         # 服务端要把场景重新下发一遍客户端才会重载。2026-11-11 真机踩到。

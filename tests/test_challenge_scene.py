@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 from hsr.game.handlers import scene as scene_handlers
 from hsr.game.services import scene as scene_service
@@ -175,6 +176,77 @@ class LobbySceneTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIsNone(self.rt.endgame.lobby_entry(10000, 123456))
         self.assertIsNone(self.rt.endgame.lobby_entry(30101, 30101001))
+
+    async def test_lobby_transport_is_ignored_on_47(self) -> None:
+        """4.7.0 点「传送」进大厅会挂在 MapNPC:*-400001，默认不切场景。
+
+        真机 2026-11-11 22:31：`enter scene entry=100000104` 之后客户端
+        `AdventurePhase._EnterStep2` → `MapNpcDef.get_ConfigEntityPath` NRE →
+        SDK 弹框 → 会话被关。混沌回忆面板不需要大厅，所以直接回当前场景。
+        """
+        self.rt.profile = SimpleNamespace(name="4.7.0")
+        self.assertEqual(self.session.scene.plane_id, self.rt.cfg.world.plane_id)
+        self.sent = []
+
+        async def record(msg, name=None):  # noqa: ANN001
+            self.sent.append(msg)
+
+        self.session.send = record  # type: ignore[method-assign]
+        rsp = await scene_handlers.on_enter_scene(
+            self.session,
+            pb.EnterSceneCsReq(
+                entry_id=100000104,
+                scene_identifier=pb.SceneIdentifier(floor_id=10000000),
+            ),
+        )
+        self.assertIsNone(rsp)
+        # 场景没换回大厅，而是重发当前世界场景
+        self.assertEqual(self.session.scene.plane_id, self.rt.cfg.world.plane_id)
+        kinds = [type(message).__name__ for message in self.sent]
+        self.assertEqual(kinds, ["EnterSceneScRsp", "EnterSceneByServerScNotify"])
+        self.assertEqual(
+            self.sent[-1].scene.plane_id, self.rt.cfg.world.plane_id
+        )
+
+    async def test_lobby_transport_can_be_forced(self) -> None:
+        """`lobby_teleport = "scene"` 时仍然切场景（对照实验用）。"""
+        self.rt.profile = SimpleNamespace(name="4.7.0")
+        self.rt.cfg.endgame.lobby_teleport = "scene"
+        rsp = await scene_handlers.on_enter_scene(
+            self.session,
+            pb.EnterSceneCsReq(
+                entry_id=100000104,
+                scene_identifier=pb.SceneIdentifier(floor_id=10000000),
+            ),
+        )
+        self.assertIsNone(rsp)
+        self.assertEqual(self.session.scene.plane_id, 10000)
+
+    async def test_lobby_entry_override_bypasses_guard(self) -> None:
+        """显式配了 lobby_entry 就是要在测大厅，别把探针也拦掉。"""
+        self.rt.profile = SimpleNamespace(name="4.7.0")
+        self.rt.cfg.endgame.lobby_entry = 100000352
+        self.rt.cfg.endgame.lobby_teleport = "auto"
+        await scene_handlers.on_enter_scene(
+            self.session,
+            pb.EnterSceneCsReq(
+                entry_id=100000104,
+                scene_identifier=pb.SceneIdentifier(floor_id=10000000),
+            ),
+        )
+        self.assertEqual(self.session.scene.entry_id, 100000352)
+
+    async def test_lobby_transport_still_works_on_4654(self) -> None:
+        """4.6.54 默认照旧切大厅（老客户端 15 层闭环是走大厅打通的）。"""
+        self.rt.profile = SimpleNamespace(name="4.6.54")
+        await scene_handlers.on_enter_scene(
+            self.session,
+            pb.EnterSceneCsReq(
+                entry_id=100000104,
+                scene_identifier=pb.SceneIdentifier(floor_id=10000000),
+            ),
+        )
+        self.assertEqual(self.session.scene.plane_id, 10000)
 
     async def test_enter_scene_uses_lobby_groups(self) -> None:
         scene = scene_service.enter_scene(

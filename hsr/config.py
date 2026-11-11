@@ -104,6 +104,15 @@ class EndgameSettings(BaseModel):
     # 都是这个值，pearl-sr 离开 Peak 时也回这里。4.6.54 的 100000104 里有
     # ConfigEntityPath 为空的 MapNPC:227-400001，会卡死传送，换一间车厢试试。
     lobby_entry: int = 0
+    # 「传送」进忘却之庭大厅（plane 10000）要不要真的切场景。
+    #   两个客户端都会在加载 floor 时挂在一个配置残缺的地图 NPC 上
+    #   （`[MapNPC:227-400001]` / 换入口后 `[MapNPC:103-400001]`，
+    #   `MapNpcDef.get_ConfigEntityPath` NRE → SDK 弹框 → 会话关闭），服务端补不了；
+    #   而混沌回忆面板（星际和平指南 → 忘却之庭）本来就不需要大厅场景。
+    #   auto   = 4.7.0 忽略、4.6.54 照旧（老客户端 15 层闭环是走大厅过的）
+    #   ignore = 都忽略（回当前场景，客户端重载后留在原地，不硬卡）
+    #   scene  = 都切（对照实验用，会卡）
+    lobby_teleport: Literal["auto", "ignore", "scene"] = "auto"
     # 登录后多少秒内点「传送」要压着场景推送，等客户端自己的场景加载态就绪再发。
     # 4.7.0 真机三组数据（同版本、同入口）：
     #   登录后 18 s 传送 -> 卡死；113 s 传送 -> 正常；14 s 传送 -> 卡死。
