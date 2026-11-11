@@ -1,0 +1,30 @@
+{
+  "plane_id": 20313,
+  "floor_id": 20313001,
+  "entry_id": 2031301,
+  "dimension_id": 0,
+  "map_layer": 0,
+  "interact_id": 0,
+  "persist_position": false,
+  "x": 31440,
+  "y": 192820,
+  "z": 433790,
+  "calyx_group_id": 186,
+  "calyx_inst_id": 300001,
+  "calyx_entity_id": 1337,
+  "calyx_prop_id": 808,
+  "calyx_cocoon_id": 1014,
+  "calyx_x": 31440,
+  "calyx_y": 192820,
+  "calyx_z": 433790,
+  "teleport_ids": [2031301, 2031302, 2031303],
+  "avatar_group_id": 0,
+  "leader_entity_id": 1,
+  "team_size": 4,
+  "lighten_section_ranges": [
+    [0, 100],
+    [10000, 10050],
+    [20000, 20000],
+    [30000, 30020]
+  ]
+}

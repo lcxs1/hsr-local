@@ -1,0 +1,9 @@
+{
+  "client_version": "OSBETAWin4.6.54",
+  "client_build": 16927089,
+  "proto_source": "echium-server-main StarRail.proto (4.6.53/54)",
+  "cmd_source": "echium-server-main CmdId.json (matches 4.6.54 capture)",
+  "descriptor": "proto/hsr.desc",
+  "generator": "protoc --python_out --pyi_out --descriptor_set_out --include_imports",
+  "generated_at": "2026-11-08"
+}

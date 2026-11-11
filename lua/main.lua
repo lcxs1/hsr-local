@@ -1,0 +1,3 @@
+-- exec=ft
+-- 改第一行为 '-- exec=tt' 即可在下一次心跳执行一次
+-- 示例：CS.UnityEngine.Debug.Log("[dsh] hello")

@@ -1,0 +1,120 @@
+[server]
+# 只监听本机；不要改成 0.0.0.0（单人服）
+listen = "127.0.0.1"
+game_port = 23301
+http_port = 21000
+
+# 客户端版本：以 versions/<profile>.toml 为准。下面两行只给未加载 profile
+# 的工具/测试做兜底，正常启动不会用到。
+profile = "4.6.54"
+version = "OSBETAWin4.6.54"
+client_build = 16927089
+
+single_client = true
+
+# KCP 会话标识编码：
+#   u32_le_token = conv(u32 LE) + token(u32 LE)   —— echium / kcpshimmy 风格
+#   u64_be       = conv(u64 BE)                    —— sr-recover / pykcp 风格
+# 两者都是 28 字节头，但线格式不同；默认用 echium 风格（4.6.54 实抓验证过的那条链路）。
+kcp_conv_mode = "u32_le_token"
+kcp_mtu = 1400
+kcp_sndwnd = 256
+kcp_rcvwnd = 256
+heartbeat_timeout = 15.0
+
+# 未知命令：empty_rsp = 回空 body 的 ScRsp；silent = 不回；error = 记 error 日志
+unknown_mode = "empty_rsp"
+log_level = "INFO"
+
+[paths]
+proto_dir = "proto"
+data_dir = "data"
+save_dir = "saves"
+log_dir = "logs"
+lua_dir = "lua"
+freesr = "data/freesr-data.json"
+hotfix = "data/hotfix.json"
+# 4.7.0 CN 客户端安装目录（StarRail_Data 的上级）。只读：本地 CDN 回放按文件名
+# 从这里取清单/资源；换安装位置或换机器时改这一行。
+client_dir = 'E:\SiFu\HSRSiFu\StarRail_CN_4.7.0'
+# 终局玩法数据（混沌回忆/虚构叙事/末日幻影/异相仲裁），由
+# scripts/export_endgame.py 从同版本客户端表生成
+endgame = "data/endgame.json"
+skins = "data/skins.json"
+
+[player]
+uid = 10001
+name = "Trailblazer"
+level = 67
+world_level = 5
+stamina = 240
+# 主角性别：1=男，2=女。这是权威开关；tb_multi_path 会自动对齐到同性别形态
+gender = 2
+# 多命途：8001..8010 = 主角各形态（奇男偶女），1001/1224 = 三月七
+# 切换后写入 saves/player.json；这里的 tb_multi_path 只是首次登录的默认形态，
+# 若与 gender 不一致，服务端会自动换成同性别形态（如 8001 -> 8002）
+tb_multi_path = 8001
+march_multi_path = 1001
+# 首次登录 / freesr 换版后旧阵容失效时的兜底队伍（基座 id）
+default_lineup = [1506, 1501, 1502, 1503]
+
+[world]
+# 固定场景拓扑放在 data/world.json（出生点、calyx、传送点、地图点亮范围）。
+# 如需临时覆盖，可直接在这里写同名字段；这里写的优先级高于 JSON。
+file = "data/world.json"
+
+[gameplay]
+# 秘技点（协议里叫 LineupInfo.mp / max_mp，客户端顶多显示 5 个菱形）。
+# 客户端放秘技时自己先扣一点，再发 SceneCastSkillCostMpCsReq(1498)。回包没有点数字段，
+# 服务端要靠推送补点；真机实测 1448(SceneCastSkillMpUpdateScNotify) 只能"扣"，
+# 客户端不认它加点，所以补点一律发 SyncLineupNotify（整份阵容含 mp，丹恒 GainMp 同路）。
+#   unlimited = 不消耗，每次放完都刷满 → 可以一直放（默认）
+#   refill    = 正常消耗，每 technique_refill_seconds 秒恢复 1 点（靠心跳驱动）
+#   on_empty  = 正常消耗，扣到 0 时立刻回满（不会卡在 0）
+#   normal    = 只扣不回（真机行为，对照用）
+technique_points = "unlimited"
+technique_points_max = 5
+technique_refill_seconds = 5.0
+
+[features]
+send_hotfix = true
+# 本地 CDN 回放：hotfix 里带 LOCAL_CDN 前缀的条目换成 http://127.0.0.1:21000/cdn，
+# 按文件名回放客户端自己安装里的资源（4.7.0 实测路径，docs/reference/05 §3）。
+# 只影响带 LOCAL_CDN 的版本条目；4.6.54 仍走真实 CDN。需要上面的 paths.client_dir。
+local_cdn = true
+# 缺 hotfix 条目时向官方网关取一次（AGENTS.md §10 受限例外，默认关闭）。
+# 开之前先读 AGENTS.md §10 的六条限制；结果会缓存进 data/hotfix.json。
+hotfix_auto = false
+# 默认直连并绕过本机代理；只有代理环境必然失败时才填中转地址（社区代理等）。
+hotfix_proxy = ""
+lua_console = true
+dump_proto = false
+# freesr-data.json 热更新（SR Tools 网页「连接设置 → RobinSR → 连接 PS」推送到
+# http://localhost:21000/srtools，或直接覆盖文件）。改角色/光锥/遗器不用重启。
+freesr_hot_reload = true
+# 监视 data/freesr-data.json 的 mtime/size；手动复制文件也会自动生效
+freesr_watch = true
+freesr_watch_interval = 2.0
+
+# ---------------------------------------------------------------------------
+# 历史 P0「位面规则」A/B 开关（已解决：指南组 type=0）。
+# 默认全关；保留仅用于诊断，不要再为弹窗改这里。
+# ---------------------------------------------------------------------------
+[experiments]
+# true = GetMissionData/GetMissionStatus 返回"全部主线已完成"
+popup_mission = false
+# true = GetQuestData 返回"全部任务已完成"
+popup_quest = false
+# off   = 活动表回空（旧行为）
+# ended = 返回 347 条活动模块，时间窗为"已结束"（2022-09-28 .. 2025-01-01）
+# active= 返回同样的活动模块，时间窗为"进行中"
+popup_activity = "off"
+# keep   = 发空 PlayerSettingInfo（旧行为）
+# omit   = 完全不发 player_setting_info
+# nested = 发 PlayerSettingInfo 并补齐三个嵌套子消息
+popup_basic_info = "keep"
+# SDK getConfig 公告开关：
+# disabled = announce_url="" + enable_announce_pic_popup=false（pearl-sr 做法）
+# serve    = 旧 payload（不带这两个字段）
+# notfound = 直接对 getConfig 返回 404（pearl-sr 没路由这个接口）
+popup_sdk_config = "disabled"

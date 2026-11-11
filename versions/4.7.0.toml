@@ -1,0 +1,14 @@
+# 4.7.0 CN 正式客户端（StarRail_CN_4.7.0）。
+# proto 表直接复用 4.6.54 的快照：2026-11-11 实测 333 帧首登全部可解，
+# cmd id 未重排（docs/reference/05 §2）。换大版本时才需要新的 proto/ 快照。
+name = "4.7.0"
+version = "CNPRODWin4.7.0"
+client_build = 17108910
+hotfix_key = "CNPRODWin4.7.0"
+proto_dir = "proto"
+content_dir = "data"
+
+# 与 4.6.54 相同的字段改名；生成类的字段名来自 4.6.54 表，线格式兼容。
+[field_aliases]
+asset_bundle_url_b = "asset_bundle_url_android"
+lua_version = "mdk_res_version"

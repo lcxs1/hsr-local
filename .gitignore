@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+logs/
+saves/*.json
+saves/*.bak
+!saves/.gitkeep
+.proto_test/
+.ruff_cache/
+
+config.tap.toml

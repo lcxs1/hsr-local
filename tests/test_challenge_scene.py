@@ -1,0 +1,237 @@
+from __future__ import annotations
+
+import tempfile
+import unittest
+from pathlib import Path
+
+from hsr.game.services import scene as scene_service
+from tests.support import build_session
+
+
+class ChallengeSceneTest(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.session = build_session(Path(self.tmp.name))
+        self.rt = self.session.runtime
+
+    async def asyncTearDown(self) -> None:
+        await self.session.close("test")
+        self.tmp.cleanup()
+
+    def _build(self, challenge_id: int, second: bool = False):
+        challenge = self.rt.endgame.challenge(challenge_id)
+        self.assertIsNotNone(challenge)
+        node = challenge.node(second)
+        scene, monster_entity_id = scene_service.build_challenge_scene(
+            self.session,
+            plane_id=node.plane_id,
+            floor_id=node.floor_id,
+            entry_id=node.entrance_id,
+            world_id=node.world_id,
+            group_id=node.maze_group_id,
+            monster_id=node.monster_id,
+            stage_id=node.stage_id,
+        )
+        return challenge, node, scene, monster_entity_id
+
+    def _npc(self, scene, entity_id: int):
+        for group in scene.entity_group_list:
+            for entity in group.entity_list:
+                if entity.entity_id == entity_id:
+                    return entity
+        return None
+
+    async def test_moc_scene(self) -> None:
+        challenge, node, scene, monster_entity_id = self._build(1101)
+        self.assertEqual(scene.plane_id, node.plane_id)
+        self.assertEqual(scene.floor_id, node.floor_id)
+        self.assertEqual(scene.entry_id, node.entrance_id)
+        self.assertEqual(scene.world_id, node.world_id)
+        self.assertEqual(scene.game_mode_type, scene_service.CHALLENGE_GAME_MODE)
+
+        state = self.session.scene
+        self.assertEqual((state.plane_id, state.floor_id, state.entry_id), (
+            node.plane_id,
+            node.floor_id,
+            node.entrance_id,
+        ))
+        group = self.rt.endgame.scene_group(node.plane_id, node.maze_group_id)
+        anchor = self.rt.endgame.anchor(node.entrance_id)
+        if anchor:
+            expected_pos = (anchor["x"], anchor["y"], anchor["z"])
+        else:
+            expected_pos = group.monsters[0].pos
+        self.assertEqual(state.position, expected_pos)
+
+        # group 0 = avatars, group N = the challenge's maze group
+        self.assertEqual(scene.entity_group_list[0].state, 0)
+        npc_group = next(
+            g for g in scene.entity_group_list if g.group_id == node.maze_group_id
+        )
+        self.assertEqual(npc_group.state, 1)
+        npc = self._npc(scene, monster_entity_id)
+        self.assertIsNotNone(npc)
+        self.assertEqual(npc.group_id, node.maze_group_id)
+        self.assertEqual(npc.npc_monster.monster_id, node.monster_id)
+        self.assertEqual(npc.npc_monster.event_id, node.stage_id)
+        self.assertGreater(npc.npc_monster.world_level, 0)
+
+        # NPC coordinates come from the exported scene group
+        group = self.rt.endgame.scene_group(node.plane_id, node.maze_group_id)
+        self.assertIsNotNone(group)
+        first = group.monsters[0]
+        self.assertEqual(npc.inst_id, first.inst_id)
+        self.assertEqual(
+            (npc.motion.pos_index.x, npc.motion.pos_index.y, npc.motion.pos_index.z),
+            first.pos,
+        )
+        props = [e for e in npc_group.entity_list if e.HasField("prop")]
+        self.assertEqual(len(props), len(group.props))
+
+        # floor saved values are pushed with the scene
+        expected = {
+            str(item["name"]): item["value"]
+            for item in self.rt.endgame.floors.get(node.floor_id, [])
+        }
+        self.assertEqual(dict(scene.floor_saved_data), expected)
+
+    async def test_pf_scene(self) -> None:
+        challenge, node, scene, monster_entity_id = self._build(20111)
+        self.assertEqual(challenge.mode, "PF")
+        npc = self._npc(scene, monster_entity_id)
+        self.assertIsNotNone(npc)
+        self.assertEqual(npc.npc_monster.event_id, node.stage_id)
+        self.assertTrue(scene.floor_saved_data)
+
+    async def test_as_scene(self) -> None:
+        challenge, node, scene, monster_entity_id = self._build(30011)
+        self.assertEqual(challenge.mode, "AS")
+        self.assertEqual(scene.plane_id, 30124)
+        npc = self._npc(scene, monster_entity_id)
+        self.assertIsNotNone(npc)
+        self.assertEqual(npc.npc_monster.monster_id, node.monster_id)
+
+    async def test_unknown_group_falls_back_to_anchor(self) -> None:
+        node = self.rt.endgame.challenge(1101).node1
+        scene, monster_entity_id = scene_service.build_challenge_scene(
+            self.session,
+            plane_id=node.plane_id,
+            floor_id=node.floor_id,
+            entry_id=node.entrance_id,
+            world_id=node.world_id,
+            group_id=999999,
+            monster_id=1234,
+            stage_id=5678,
+        )
+        npc = self._npc(scene, monster_entity_id)
+        self.assertIsNotNone(npc)
+        self.assertEqual(npc.npc_monster.monster_id, 1234)
+        self.assertEqual(npc.npc_monster.event_id, 5678)
+        anchor = self.rt.endgame.anchor(node.entrance_id)
+        expected = (
+            (anchor["x"], anchor["y"], anchor["z"]) if anchor else (0, 0, 0)
+        )
+        self.assertEqual(
+            (npc.motion.pos_index.x, npc.motion.pos_index.y, npc.motion.pos_index.z),
+            expected,
+        )
+        self.assertEqual(len(scene.entity_group_list), 2)
+
+    async def test_normal_scene_is_unchanged(self) -> None:
+        scene = scene_service.build_scene(self.session)
+        self.assertEqual(scene.game_mode_type, 1)
+        self.assertEqual(scene.world_id, 0)
+        self.assertEqual(len(scene.floor_saved_data), 0)
+        self.assertEqual(scene.plane_id, self.rt.cfg.world.plane_id)
+
+
+class LobbySceneTest(unittest.IsolatedAsyncioTestCase):
+    """忘却之庭 lobby must render the exported entry groups, not world defaults.
+
+    4.6.54 real machine 2026-11-11: the lobby showed only two default groups
+    (avatar + calyx) because ``enter_scene`` fell back to the open-world
+    assembly and ``data/endgame.json`` had no plane 10000 data.
+    """
+
+    async def asyncSetUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.session = build_session(Path(self.tmp.name))
+        self.rt = self.session.runtime
+        self.props = self.rt.endgame.lobby_entry(10000, 100000104)
+        self.assertIsNotNone(self.props)
+
+    async def asyncTearDown(self) -> None:
+        await self.session.close("test")
+        self.tmp.cleanup()
+
+    async def test_lobby_entry_is_exported(self) -> None:
+        self.assertEqual(len(self.props), 13)
+        self.assertEqual(
+            sorted({prop.group_id for prop in self.props}),
+            [2, 3, 30, 47, 66, 142, 153, 276],
+        )
+        self.assertIsNone(self.rt.endgame.lobby_entry(10000, 123456))
+        self.assertIsNone(self.rt.endgame.lobby_entry(30101, 30101001))
+
+    async def test_enter_scene_uses_lobby_groups(self) -> None:
+        scene = scene_service.enter_scene(
+            self.session, plane_id=10000, floor_id=10000000, entry_id=100000104
+        )
+        self.assertEqual(scene.plane_id, 10000)
+        self.assertEqual(scene.floor_id, 10000000)
+        # avatar group first, then every exported lobby group with its props
+        self.assertEqual(
+            scene.entity_group_list[0].group_id, self.rt.cfg.world.avatar_group_id
+        )
+        lobby_groups = scene.entity_group_list[1:]
+        self.assertEqual(
+            [group.group_id for group in lobby_groups],
+            [2, 3, 30, 47, 66, 142, 153, 276],
+        )
+        entities = [entity for group in lobby_groups for entity in group.entity_list]
+        self.assertEqual(len(entities), len(self.props))
+        self.assertTrue(all(entity.HasField("prop") for entity in entities))
+        # entity ids must not collide with avatars (1..4) or the arena (1000+)
+        self.assertGreaterEqual(
+            min(entity.entity_id for entity in entities),
+            scene_service.LOBBY_ENTITY_BASE,
+        )
+        # the calyx group belongs to the fixed open world, never to the lobby
+        calyx_group = self.rt.cfg.world.calyx_group_id
+        self.assertNotIn(
+            calyx_group,
+            [group.group_id for group in scene.entity_group_list],
+        )
+
+    async def test_lobby_map_info_reports_entry_groups(self) -> None:
+        scene_service.enter_scene(
+            self.session, plane_id=10000, floor_id=10000000, entry_id=100000104
+        )
+        info = scene_service.build_map_info(self.session)
+        self.assertEqual(info.entry_id, 100000104)
+        self.assertEqual(
+            [group.group_id for group in info.maze_group_list],
+            [2, 3, 30, 47, 66, 142, 153, 276],
+        )
+        self.assertEqual(len(info.maze_prop_list), len(self.props))
+        self.assertTrue(
+            all(prop.config_id for prop in info.maze_prop_list),
+            "every lobby prop must carry its prop id as config_id",
+        )
+
+    async def test_unknown_lobby_entry_keeps_world_group(self) -> None:
+        """A plane/entry without exported lobby data keeps the old fallback."""
+        scene = scene_service.enter_scene(
+            self.session, plane_id=10000, floor_id=10000000, entry_id=100000999
+        )
+        self.assertEqual(len(scene.entity_group_list), 1)
+        self.assertEqual(
+            scene.entity_group_list[0].group_id, self.rt.cfg.world.avatar_group_id
+        )
+
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+

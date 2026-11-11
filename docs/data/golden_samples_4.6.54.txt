@@ -1,0 +1,749 @@
+
+===== cmd 71 PlayerGetTokenScRsp  body=3B =====
+  uid: 10001
+
+===== cmd 19 PlayerLoginScRsp  body=26B =====
+  basic_info {
+    nickname: "Trailblazer"
+    level: 67
+    stamina: 240
+    world_level: 5
+  }
+  server_timestamp_ms: 1793520048111
+  stamina: 240
+
+===== cmd 20 GetBasicInfoScRsp  body=8B =====
+  player_setting_info {
+  }
+  gender: 2
+  is_gender_set: true
+  cur_day: 1
+
+===== cmd 519 GetBagScRsp  body=20991B =====
+  equipment_list {
+    promotion: 6
+    tid: 20003
+    level: 80
+    rank: 1
+    dress_avatar_id: 1001
+  }
+  equipment_list {
+    promotion: 6
+    tid: 20014
+    level: 80
+    rank: 1
+    unique_id: 1
+    dress_avatar_id: 1002
+  }
+  equipment_list {
+    promotion: 6
+    tid: 23000
+    level: 80
+    rank: 1
+    unique_id: 2
+    dress_avatar_id: 1003
+  }
+  equipment_list {
+    promotion: 6
+    tid: 22000
+    level: 80
+    rank: 5
+    unique_id: 3
+    dress_avatar_id: 1004
+  }
+  equipment_list {
+    promotion: 6
+    tid: 23004
+    level: 80
+    rank: 1
+    unique_id: 4
+    dress_avatar_id: 1005
+  }
+  equipment_list {
+    promotion: 6
+    tid: 23007
+    level: 80
+    rank: 1
+    unique_id: 5
+    dress_avatar_id: 1006
+  }
+  equipment_list {
+    promotion: 6
+    tid: 21013
+    level: 80
+    rank: 1
+    unique_id: 6
+    dress_avatar_id: 1008
+  }
+  equipment_list {
+    promotion: 6
+    tid: 21018
+    level: 80
+    rank: 3
+    unique_id: 7
+    dress_avatar_id: 1009
+  }
+  equipment_list {
+    promotion: 6
+    tid: 21006
+    level: 80
+    rank: 5
+    unique_id: 8
+    dress_avatar_id: 1013
+  }
+  equipment_list {
+    promotion: 6
+    tid: 23045
+    level: 80
+    rank: 1
+    unique_id: 9
+    dress_avatar_id: 1014
+  }
+  equipment_list {
+    promotion: 6
+    tid: 23046
+    level: 80
+    rank: 1
+    unique_id: 10
+    dress_avatar_id: 1015
+  }
+  equipment_list {
+    promotion: 6
+    tid: 23003
+    level: 80
+    rank: 1
+    unique_id: 11
+    dress_avatar_id: 1101
+  }
+  equipment_list {
+    promotion: 6
+    tid: 23001
+    level: 80
+    rank: 1
+    unique_id: 12
+    dress_avatar_id: 1102
+  }
+  equipment_list {
+    promotion: 6
+    tid: 21013
+    level: 80
+    rank: 1
+    unique_id: 13
+    dress_avatar_id: 1103
+  }
+  equipment_list {
+    promotion: 6
+    tid: 21039
+    level: 80
+    rank: 5
+    unique_id: 14
+    dress_avatar_id: 1104
+  }
+  equipment_list {
+    ... (11649 more lines)
+
+===== cmd 2819 GetPlayerBoardDataScRsp  body=52B =====
+  current_head_icon_id: 200143
+  display_avatar_vec {
+  }
+  unlocked_head_icon_list {
+    id: 200143
+  }
+  signature: ""
+
+===== cmd 319 GetAvatarDataScRsp  body=17294B =====
+  basic_type_id_list: 1001
+  basic_type_id_list: 8001
+  avatar_path_data_info_list {
+    avatar_id: 1001
+    avatar_path_skill_tree {
+      point_id: 1
+      level: 6
+    }
+    avatar_path_skill_tree {
+      point_id: 2
+      level: 10
+    }
+    avatar_path_skill_tree {
+      point_id: 3
+      level: 10
+    }
+    avatar_path_skill_tree {
+      point_id: 4
+      level: 10
+    }
+    avatar_path_skill_tree {
+      point_id: 5
+      level: 1
+    }
+    avatar_path_skill_tree {
+      point_id: 6
+      level: 1
+    }
+    avatar_path_skill_tree {
+      point_id: 7
+      level: 1
+    }
+    avatar_path_skill_tree {
+      point_id: 8
+      level: 1
+    }
+    avatar_path_skill_tree {
+      point_id: 9
+      level: 1
+    }
+    avatar_path_skill_tree {
+      point_id: 10
+      level: 1
+    }
+    avatar_path_skill_tree {
+      point_id: 11
+      level: 1
+    }
+    avatar_path_skill_tree {
+      point_id: 12
+      level: 1
+    }
+    avatar_path_skill_tree {
+      point_id: 13
+      level: 1
+    }
+    avatar_path_skill_tree {
+      point_id: 14
+      level: 1
+    }
+    avatar_path_skill_tree {
+      point_id: 15
+      level: 1
+    }
+    avatar_path_skill_tree {
+      point_id: 16
+      level: 1
+    }
+    avatar_path_skill_tree {
+      point_id: 17
+      level: 1
+    }
+    avatar_path_skill_tree {
+      point_id: 18
+      level: 1
+    }
+    unlock_timestamp: 1712924677
+    rank: 5
+  }
+  avatar_path_data_info_list {
+    avatar_id: 1002
+    avatar_path_skill_tree {
+      point_id: 1
+      level: 6
+    }
+    avatar_path_skill_tree {
+      point_id: 2
+      level: 10
+    }
+    avatar_path_skill_tree {
+      point_id: 3
+      level: 10
+    }
+    avatar_path_skill_tree {
+      point_id: 4
+      level: 10
+    }
+    avatar_path_skill_tree {
+      point_id: 5
+      level: 1
+    }
+    avatar_path_skill_tree {
+      point_id: 6
+      level: 1
+    }
+    avatar_path_skill_tree {
+      point_id: 7
+      level: 1
+    }
+    avatar_path_skill_tree {
+      point_id: 8
+      level: 1
+    }
+    avatar_path_skill_tree {
+      point_id: 9
+      level: 1
+    }
+    avatar_path_skill_tree {
+      point_id: 10
+      level: 1
+    ... (10290 more lines)
+
+===== cmd 2950 GetCurAssistScRsp  body=0B =====
+
+===== cmd 794 GetAllLineupDataScRsp  body=79B =====
+  lineup_list {
+    mp: 5
+    max_mp: 5
+    avatar_list {
+      avatar_type: AvatarType_AvatarFormalType
+      sp_bar {
+        cur_sp: 10000
+        max_sp: 10000
+      }
+      hp: 10000
+      satiety: 100
+      id: 1505
+    }
+    avatar_list {
+      avatar_type: AvatarType_AvatarFormalType
+      sp_bar {
+        cur_sp: 10000
+        max_sp: 10000
+      }
+      hp: 10000
+      satiety: 100
+      id: 1502
+      slot: 1
+    }
+    avatar_list {
+      avatar_type: AvatarType_AvatarFormalType
+      sp_bar {
+        cur_sp: 10000
+        max_sp: 10000
+      }
+      hp: 10000
+      satiety: 100
+      id: 1503
+      slot: 2
+    }
+    name: "Squad 1"
+  }
+
+===== cmd 2671 GetActivityScheduleConfigScRsp  body=0B =====
+
+===== cmd 1219 GetMissionDataScRsp  body=0B =====
+
+===== cmd 919 GetQuestDataScRsp  body=0B =====
+
+===== cmd 1727 GetCurChallengeScRsp  body=0B =====
+
+===== cmd 118 SyncClientResVersionScRsp  body=0B =====
+
+===== cmd 2787 GetNpcStatusScRsp  body=0B =====
+
+===== cmd 38 GetSecretKeyInfoScRsp  body=0B =====
+
+===== cmd 69 GetVideoVersionKeyScRsp  body=0B =====
+
+===== cmd 787 GetCurLineupDataScRsp  body=79B =====
+  lineup {
+    mp: 5
+    max_mp: 5
+    avatar_list {
+      avatar_type: AvatarType_AvatarFormalType
+      sp_bar {
+        cur_sp: 10000
+        max_sp: 10000
+      }
+      hp: 10000
+      satiety: 100
+      id: 1505
+    }
+    avatar_list {
+      avatar_type: AvatarType_AvatarFormalType
+      sp_bar {
+        cur_sp: 10000
+        max_sp: 10000
+      }
+      hp: 10000
+      satiety: 100
+      id: 1502
+      slot: 1
+    }
+    avatar_list {
+      avatar_type: AvatarType_AvatarFormalType
+      sp_bar {
+        cur_sp: 10000
+        max_sp: 10000
+      }
+      hp: 10000
+      satiety: 100
+      id: 1503
+      slot: 2
+    }
+    name: "Squad 1"
+  }
+
+===== cmd 171 GetCurBattleInfoScRsp  body=0B =====
+
+===== cmd 1497 GetEnteredSceneScRsp  body=0B =====
+
+===== cmd 53 QueryProductInfoScRsp  body=0B =====
+
+===== cmd 1294 GetMissionStatusScRsp  body=1554B =====
+  finished_main_mission_id_list: 1010001
+  finished_main_mission_id_list: 1000101
+  finished_main_mission_id_list: 1000502
+  finished_main_mission_id_list: 1010002
+  finished_main_mission_id_list: 1000501
+  finished_main_mission_id_list: 1000503
+  finished_main_mission_id_list: 1000504
+  finished_main_mission_id_list: 4010105
+  finished_main_mission_id_list: 4050008
+  finished_main_mission_id_list: 4050009
+  finished_main_mission_id_list: 4050010
+  finished_main_mission_id_list: 4050011
+  finished_main_mission_id_list: 4050012
+  finished_main_mission_id_list: 4050023
+  finished_main_mission_id_list: 4050024
+  finished_main_mission_id_list: 4050025
+  finished_main_mission_id_list: 4050026
+  finished_main_mission_id_list: 4050027
+  finished_main_mission_id_list: 4050005
+  finished_main_mission_id_list: 4050007
+  finished_main_mission_id_list: 1011403
+  finished_main_mission_id_list: 4050013
+  finished_main_mission_id_list: 4050014
+  finished_main_mission_id_list: 4050015
+  finished_main_mission_id_list: 4050016
+  finished_main_mission_id_list: 4050017
+  finished_main_mission_id_list: 4050018
+  finished_main_mission_id_list: 4050019
+  finished_main_mission_id_list: 4050020
+  finished_main_mission_id_list: 4050021
+  finished_main_mission_id_list: 4050022
+  finished_main_mission_id_list: 4050036
+  finished_main_mission_id_list: 4050037
+  finished_main_mission_id_list: 4050028
+  finished_main_mission_id_list: 4050029
+  finished_main_mission_id_list: 4050030
+  finished_main_mission_id_list: 4050031
+  finished_main_mission_id_list: 4050032
+  finished_main_mission_id_list: 4050033
+  finished_main_mission_id_list: 4050034
+  finished_main_mission_id_list: 4050035
+  finished_main_mission_id_list: 1020101
+  finished_main_mission_id_list: 4040325
+  finished_main_mission_id_list: 2000201
+  finished_main_mission_id_list: 6020201
+  finished_main_mission_id_list: 2011501
+  finished_main_mission_id_list: 4010133
+  finished_main_mission_id_list: 4050038
+  finished_main_mission_id_list: 4050039
+  finished_main_mission_id_list: 2010201
+  finished_main_mission_id_list: 2021001
+  finished_main_mission_id_list: 4010107
+  finished_main_mission_id_list: 2000801
+  finished_main_mission_id_list: 2020507
+  sub_mission_status_list {
+    id: 100050203
+    progress: 1
+    status: MissionStatus_MissionFinish
+  }
+  sub_mission_status_list {
+    id: 102010104
+    progress: 1
+    status: MissionStatus_MissionFinish
+  }
+  sub_mission_status_list {
+    id: 102010105
+    progress: 1
+    status: MissionStatus_MissionFinish
+  }
+  sub_mission_status_list {
+    id: 102010106
+    progress: 1
+    status: MissionStatus_MissionFinish
+  }
+  sub_mission_status_list {
+    id: 102010107
+    progress: 1
+    status: MissionStatus_MissionFinish
+  }
+  sub_mission_status_list {
+    id: 102010108
+    progress: 1
+    status: MissionStatus_MissionFinish
+  }
+  sub_mission_status_list {
+    id: 102010109
+    progress: 1
+    status: MissionStatus_MissionFinish
+  }
+  sub_mission_status_list {
+    id: 102010110
+    progress: 1
+    status: MissionStatus_MissionFinish
+  }
+  sub_mission_status_list {
+    id: 102010111
+    progress: 1
+    status: MissionStatus_MissionFinish
+  }
+  sub_mission_status_list {
+    id: 102010112
+    progress: 1
+    status: MissionStatus_MissionFinish
+  }
+  sub_mission_status_list {
+    id: 404032502
+    progress: 1
+    status: MissionStatus_MissionFinish
+  }
+  sub_mission_status_list {
+    id: 200020101
+    progress: 1
+    status: MissionStatus_MissionFinish
+  }
+  sub_mission_status_list {
+    id: 101150223
+    progress: 1
+    status: MissionStatus_MissionFinish
+  }
+  sub_mission_status_list {
+    ... (514 more lines)
+
+===== cmd 1919 GetGachaInfoScRsp  body=0B =====
+
+===== cmd 1418 GetCurSceneInfoScRsp  body=201B =====
+  scene {
+    floor_id: 20313001
+    plane_id: 20313
+    leader_entity_id: 1
+    entry_id: 2031301
+    game_mode_type: 1
+    scene_identifier {
+      floor_id: 20313001
+    }
+    entity_group_list {
+      entity_list {
+        motion {
+          pos_index {
+            x: 31440
+            y: 192820
+            z: 433790
+          }
+          rot_index {
+          }
+        }
+        actor {
+          base_avatar_id: 1505
+          avatar_type: AvatarType_AvatarFormalType
+          uid: 10001
+        }
+        entity_id: 1
+      }
+      entity_list {
+        motion {
+          pos_index {
+            x: 31440
+            y: 192820
+            z: 433790
+          }
+          rot_index {
+          }
+        }
+        actor {
+          base_avatar_id: 1502
+          avatar_type: AvatarType_AvatarFormalType
+          uid: 10001
+        }
+        entity_id: 2
+      }
+      entity_list {
+        motion {
+          pos_index {
+            x: 31440
+            y: 192820
+            z: 433790
+          }
+          rot_index {
+          }
+        }
+        actor {
+          base_avatar_id: 1503
+          avatar_type: AvatarType_AvatarFormalType
+          uid: 10001
+        }
+        entity_id: 3
+      }
+      entity_list {
+        motion {
+          pos_index {
+            x: 31440
+            y: 192820
+            z: 433790
+          }
+          rot_index {
+          }
+        }
+        actor {
+          avatar_type: AvatarType_AvatarFormalType
+          uid: 10001
+        }
+        entity_id: 4
+      }
+    }
+    entity_group_list {
+      group_id: 186
+      state: 1
+      entity_list {
+        motion {
+          pos_index {
+            x: 31440
+            y: 192820
+            z: 433790
+          }
+          rot_index {
+          }
+        }
+        prop {
+          prop_state: 1
+          prop_id: 808
+        }
+        group_id: 186
+        inst_id: 300001
+        entity_id: 1337
+      }
+    }
+  }
+
+===== cmd 13 PlayerLoginFinishScRsp  body=0B =====
+
+===== cmd 82 GetLevelRewardTakenListScRsp  body=0B =====
+
+===== cmd 8368 GetRechargeGiftInfoScRsp  body=0B =====
+
+===== cmd 918 GetQuestRecordScRsp  body=0B =====
+
+===== cmd 2953 GetFriendLoginInfoScRsp  body=0B =====
+
+===== cmd 3387 GetDailyActiveInfoScRsp  body=0B =====
+
+===== cmd 3619 GetFightActivityDataScRsp  body=0B =====
+
+===== cmd 2538 GetExpeditionDataScRsp  body=0B =====
+
+===== cmd 1719 GetChallengeScRsp  body=0B =====
+
+===== cmd 2226 GetRaidInfoScRsp  body=0B =====
+
+===== cmd 2619 GetLoginActivityScRsp  body=0B =====
+
+===== cmd 2664 GetTrialActivityDataScRsp  body=0B =====
+
+===== cmd 3119 GetJukeboxDataScRsp  body=0B =====
+
+===== cmd 5119 GetPhoneDataScRsp  body=0B =====
+
+===== cmd 9988 B51RacingGetDataScRsp  body=0B =====
+
+===== cmd 2319 GetArchiveDataScRsp  body=2B =====
+  archive_data {
+  }
+
+===== cmd 819 GetMailScRsp  body=2B =====
+  is_end: true
+
+===== cmd 16 PlayerHeartBeatScRsp  body=14B =====
+  server_time_ms: 1793520055362
+  client_time_ms: 1793520055320
+
+===== cmd 747 ChangeLineupLeaderScRsp  body=2B =====
+  slot: 1
+
+===== cmd 350 GetPreAvatarGrowthInfoScRsp  body=0B =====
+
+===== cmd 1434 SceneGroupRefreshScNotify  body=73B =====
+  floor_id: 20313001
+  group_refresh_list {
+    refresh_type: SCENE_GROUP_REFRESH_TYPE_LOADED
+    refresh_entity {
+      add_entity {
+        actor {
+          base_avatar_id: 1505
+          avatar_type: AvatarType_AvatarFormalType
+          uid: 10001
+        }
+        entity_id: 1
+      }
+    }
+    refresh_entity {
+      add_entity {
+        actor {
+          base_avatar_id: 1502
+          avatar_type: AvatarType_AvatarFormalType
+          uid: 10001
+        }
+        entity_id: 2
+      }
+    }
+    refresh_entity {
+      add_entity {
+        actor {
+          base_avatar_id: 1503
+          avatar_type: AvatarType_AvatarFormalType
+          uid: 10001
+        }
+        entity_id: 3
+      }
+    }
+    refresh_entity {
+      add_entity {
+        actor {
+          base_avatar_id: 1414
+          avatar_type: AvatarType_AvatarFormalType
+          uid: 10001
+        }
+        entity_id: 4
+      }
+    }
+  }
+
+===== cmd 727 SyncLineupNotify  body=101B =====
+  lineup {
+    mp: 5
+    max_mp: 5
+    avatar_list {
+      avatar_type: AvatarType_AvatarFormalType
+      sp_bar {
+        cur_sp: 10000
+        max_sp: 10000
+      }
+      hp: 10000
+      satiety: 100
+      id: 1505
+    }
+    avatar_list {
+      avatar_type: AvatarType_AvatarFormalType
+      sp_bar {
+        cur_sp: 10000
+        max_sp: 10000
+      }
+      hp: 10000
+      satiety: 100
+      id: 1502
+      slot: 1
+    }
+    avatar_list {
+      avatar_type: AvatarType_AvatarFormalType
+      sp_bar {
+        cur_sp: 10000
+        max_sp: 10000
+      }
+      hp: 10000
+      satiety: 100
+      id: 1503
+      slot: 2
+    }
+    avatar_list {
+      avatar_type: AvatarType_AvatarFormalType
+      sp_bar {
+        cur_sp: 10000
+        max_sp: 10000
+      }
+      hp: 10000
+      satiety: 100
+      id: 1414
+      slot: 3
+    }
+    name: "Squad 1"
+  }
+
+===== cmd 715 ReplaceLineupScRsp  body=0B =====

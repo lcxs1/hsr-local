@@ -1,0 +1,15 @@
+# Active client build.  Keep one file per build under versions/.
+# Switch builds by changing [server].profile in config.toml.
+name = "4.6.54"
+version = "OSBETAWin4.6.54"
+client_build = 16927089
+hotfix_key = "OSBETAWin4.6.54"
+proto_dir = "proto"
+content_dir = "data"
+
+# Only fields whose names differ from the semantic name we use in handlers.
+# 4.6.54 replaced asset_bundle_url_b with asset_bundle_url_android and
+# lua_version with mdk_res_version; the generated classes use the old names.
+[field_aliases]
+asset_bundle_url_b = "asset_bundle_url_android"
+lua_version = "mdk_res_version"

@@ -1,0 +1,20 @@
+[project]
+name = "hsr-local"
+version = "0.1.0"
+description = "Local single-player Honkai: Star Rail server emulator (4.6.54)"
+requires-python = ">=3.13"
+dependencies = [
+    "protobuf>=7.0",
+    "pydantic>=2.14",
+    "fastapi>=0.135",
+    "uvicorn>=0.41",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+extend-exclude = ["hsr/net/kcp.py", "hsr/protocol/gen", "scripts"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
