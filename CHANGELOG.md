@@ -4,6 +4,8 @@
 
 ## 2026-11-11
 
+- **新增接手快照** [`docs/notes/2026-11-11-混沌回忆状态快照.md`](docs/notes/2026-11-11-混沌回忆状态快照.md)：把这一晚的全部结论（6 条已确认根因 + 证据路径）、当前代码行为、下一轮真机判据（报告 A 段三行）与 4 个候选改法、日志分析命令、关键数据 id 写进一篇；`docs/README §2.0`、`guide/03 §5`、`design/04` 顶部都指向它。用于上下文压缩 / 换人接手。
+  依据：用户要求先落文档再汇报测试结果。
 - **下半卡近战/黑屏的根因修掉**：换半场默认**不再卸载旧迷宫组**（4.7.0 把 `refresh_type=LOADED` 的“卸载包”当成「激活组」→ `Reload ServerGroup Error, Already Exists!!! ServerGroupID: 9` → `MapDef._ActiveServerHoyoGroup` NRE → 客户端黑屏「弱点」/卡近战、advance 之后一个 `SceneCastSkill` 都不发）。新增 `[endgame] unload_old_group`（默认 false；true = 用 `refresh_type=UNLOAD` 整组卸载，未真机）。取证脚本 A 段新增三行判定（客户端组刷新报错 / 下半是否发出 cast / 大厅传送拦截），并修掉多轮尝试时 “cast 统计串轮”“误报上半重打”。227 单测绿。
   依据：`logs/test/test-20261111-224811.*` 三轮真机：上半都能打，advance 后客户端必报 `Already Exists ServerGroupID: 9`、`+6s/+14s` 截图黑屏带「弱点」，服务端零 cast。
 - **大厅传送：默认恢复切场景 + 探针开关**：`[endgame] lobby_teleport` 默认改回 `scene`（照常切大厅），只保留 `ignore` 作为“宁可不进大厅也别卡”的开关。原因：22:38 真机证明忽略传送后大厅 UI 与挑战水晶一起进不去（“不卡了但也进不去”），而 21:02/21:05 说明大厅**不是每次必挂**。配套：`scripts/game_test.ps1` 新增 `-LobbyEntry <id>` / `-LobbyTeleport <mode>`（临时改 `config.toml`，跑完自动还原）+ `-IntervalShotSec` 定时截图 + 按包截图（`EnterScene`/`InteractProp`/`GetChallenge*`/`StartChallenge*`/`SceneCastSkill`… 抓点击瞬间的 UI）；大厅入口没有水晶道具时在出生点合成三块水晶（`scene_service.spawn_crystals`）。
