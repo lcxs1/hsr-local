@@ -742,6 +742,62 @@ class ChallengeHandlersTest(unittest.IsolatedAsyncioTestCase):
             state.avatars,
         )
 
+    async def test_advance_declare_uses_group_info_not_entity_patch(self) -> None:
+        """``advance=declare``：原地**声明**下一个迷宫组，不推场景、不重载 stage。
+
+        `GroupRefreshInfo.group_info` 与 `SceneInfo.entity_group_list` 是同一个
+        message（`SceneEntityGroupInfo`），所以组可以直接“声明”出来，而不用 4.7
+        会 NRE 的逐实体 patch；也不发 `SyncServerSceneChangeNotify`，避免客户端
+        重载 stage 之后立刻进战斗卡在进场动画。
+        """
+        self.rt.cfg.endgame.advance = "declare"
+        await challenge_handlers.on_start_challenge(
+            self.session,
+            pb.StartChallengeCsReq(
+                challenge_id=1101,
+                avatar_lineup_first=self._lineup(1506, 1501),
+                avatar_lineup_second=self._lineup(1414, 1502),
+            ),
+        )
+        battle = await scene_handlers.on_cast_skill(
+            self.session, pb.SceneCastSkillCsReq(cast_entity_id=1)
+        )
+        self.sent.clear()
+        await battle_handlers.on_pve_result(
+            self.session,
+            pb.PVEBattleResultCsReq(
+                battle_id=battle.battle_info.battle_id,
+                stage_id=battle.battle_info.stage_id,
+                end_status=pb.BattleEndStatus.Value("BATTLE_END_WIN"),
+            ),
+        )
+        kinds = [type(message).__name__ for message in self.sent]
+        self.assertEqual(kinds[0], "ChallengeLineupNotify")
+        self.assertNotIn("EnterSceneByServerScNotify", kinds)
+        self.assertNotIn("SyncServerSceneChangeNotify", kinds)
+        self.assertNotIn("ChallengeSettleNotify", kinds)
+        node2 = self.rt.endgame.challenge(1101).node2
+        rsp_index = kinds.index("PVEBattleResultScRsp")
+        after = self.sent[rsp_index + 1 :]
+        self.assertEqual([type(m).__name__ for m in after], ["SceneGroupRefreshScNotify"])
+        entry = after[0].group_refresh_list[0]
+        self.assertEqual(entry.group_id, node2.maze_group_id)
+        self.assertTrue(entry.HasField("group_info"))
+        self.assertEqual(entry.group_info.group_id, node2.maze_group_id)
+        # 逐实体 patch 为空：组是靠 group_info 声明的
+        self.assertEqual(len(entry.refresh_entity), 0)
+        monsters = [e for e in entry.group_info.entity_list if e.HasField("npc_monster")]
+        self.assertTrue(monsters)
+        self.assertEqual(monsters[0].npc_monster.event_id, node2.stage_id)
+        # 后半场仍然能正常开打
+        lower = await scene_handlers.on_cast_skill(
+            self.session, pb.SceneCastSkillCsReq(cast_entity_id=1)
+        )
+        self.assertEqual(lower.battle_info.stage_id, node2.stage_id)
+        self.assertEqual(
+            self.session.challenge.monster_entity_id, monsters[0].entity_id
+        )
+
     async def test_advance_scene_mode_still_available(self) -> None:
         """``advance=scene`` 保留做 A/B：重建 SceneInfo 走 EnterSceneByServerScNotify。"""
         self.rt.cfg.endgame.advance = "scene"

@@ -85,15 +85,16 @@ class EndgameSettings(BaseModel):
     moc_group_id: int = 0
     unlock_all: bool = True
     # 一个阶段（上半 / 星启节点）打完怎么进下一个（真机 A/B 用，一次只改一个）：
+    #   declare = 原地声明下一个迷宫组：ChallengeLineupNotify + 角色组刷新 → 结果包
+    #             → SceneGroupRefreshScNotify(GroupRefreshInfo.group_info=整组)；
+    #             不推场景、不触发客户端重载 stage（4.7 客户端认这条声明路径）
     #   sync    = 参考顺序（LunarCore `advanceStage`）：ChallengeLineupNotify →
     #             SyncServerSceneChangeNotify + SyncLineupNotify +
-    #             EnterSceneByServerScNotify（整份新 SceneInfo，默认）
-    #   inplace = 同场景原地换组：ChallengeLineupNotify + 角色组刷新 +
-    #             SceneGroupRefreshScNotify（4.7.0 会在客户端 NRE，仅留作 A/B）
-    #   scene   = 不发 SyncServerSceneChangeNotify，直接推新 SceneInfo
-    #             （4.6.54/4.7.0 下半黑屏就是这条路，仅留作 A/B）
+    #             EnterSceneByServerScNotify（整份新 SceneInfo；客户端会重载 stage）
+    #   inplace = 同场景原地换组（逐实体 patch，4.7 会在客户端 NRE，仅留作 A/B）
+    #   scene   = 不发 SyncServerSceneChangeNotify，直接推新 SceneInfo（A/B）
     #   client  = 只回战斗结果，等客户端自己发 StartChallenge（pearl 流程）
-    advance: Literal["sync", "inplace", "scene", "client"] = "sync"
+    advance: Literal["declare", "sync", "inplace", "scene", "client"] = "sync"
     # 忘却之庭大厅报哪些场景组（客户端按“已加载组”创建地图 NPC）：
     #   all      = 全部道具（含车厢装饰）
     #   crystals = 只报可交互展台（prop_id >= 100000）

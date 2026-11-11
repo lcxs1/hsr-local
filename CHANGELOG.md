@@ -4,6 +4,8 @@
 
 ## 2026-11-11
 
+- **新增 `advance = "declare"`（下半卡进场动画的对照实验）**：不推场景、不触发客户端重载 stage，改用 `GroupRefreshInfo.group_info`（与 `SceneInfo.entity_group_list` 同一个 `SceneEntityGroupInfo` message）原地**声明**下半的迷宫组，走和上半进场景完全一样的路径；`services/scene.py` 新增 `declared_group_notify`。`[endgame] advance` 支持 `declare|sync|inplace|scene|client`（默认仍是 `sync`），取证脚本 event 规则认 `challenge advance (declare)`；230 单测 + 回放 + ruff 绿。
+  依据：用户 23:39 描述「下半进场景、看到 NPC、攻击了，正常会近战，但卡在进战斗的动画（类似『弱点』），几秒后直接结算」——`sync` 路线让客户端 `AdventurePhase._EnterStep2` 重载整个 stage，玩家 5–6 秒后开打，战斗进场卡死；`declare` 用来隔离“重载 stage”这个变量。
 - **`sync` 路线真机通过；新增上下半战斗自证日志**：23:25 / 23:27 两轮 4.7.0 真机上下半都能进、能按 F、能结算（报告 A 段全绿）。剩下的新症状是**下半战斗黑屏 ~15 s 后自己 WIN → 直接结算页**，服务端侧看不出问题，所以补两行日志：`battle stats: battle=… rounds=… turns=… auto_turns=… cost=…s monsters=… damage=… avatars=…`（`handlers/battle.py`，从 `PVEBattleResultCsReq.stt` 取）和 `challenge battle waves: stage=… waves=[[…]]`（`services/challenge.py`），取证脚本加 `battle-stats` / `waves` 两条 event 规则。229 单测 + 回放 + ruff 绿。
   依据：`logs/test/test-20261111-232502.*` 全黑截图 `-48/-50/-51/-52`；`data/endgame.json` 的 `stages[30126012]` 与 pearl-sr `StageConfig.json` 的 `MonsterList` 完全一致，排除“本地没有怪物数据”。
 - **阶段切换改成参考实现的 `sync` 路线（下半卡近战第二轮修）**：`[endgame] advance` 默认从 `inplace` 改成 `sync` —— `ChallengeLineupNotify` + `SyncLineupNotify` → `PVEBattleResultScRsp` → `SyncServerSceneChangeNotify` + `EnterSceneByServerScNotify`（整份新 `SceneInfo`，`entity_group_list` 里声明 node2 的迷宫组），**不再发任何 `SceneGroupRefreshScNotify`**；`inplace`/`scene`/`client` 保留为 A/B。测试脚本 event 规则认 `challenge advance (sync)`；回放链改跑 `sync` 并断言“sync 段不许出现组刷新 + 包序”；新增单测 `test_advance_sync_uses_reference_packets`（228 单测绿、`check.ps1` 除 `AGENTS.md` 死链外全绿）。

@@ -691,6 +691,40 @@ def load_group_notify(
     return group_refresh_notify(session, add=list(entities))
 
 
+def declared_group_notify(
+    session,
+    group_id: int,
+    entities: list[pb.SceneEntityInfo],
+    *,
+    refresh_type: int = GROUP_REFRESH_LOADED,
+) -> pb.SceneGroupRefreshScNotify:
+    """Load one maze group the way 4.7 declares server groups.
+
+    ``SceneInfo.entity_group_list`` (scene entry, which works) and
+    ``GroupRefreshInfo.group_info`` (this packet) are the **same** message
+    (``SceneEntityGroupInfo``), so a mid-scene group can be declared instead of
+    patched: the client builds the group from the entity list instead of running
+    ``MapDef._ActiveServerHoyoGroup`` on a group it has never seen (which NREs,
+    see :func:`group_refresh_notify`).
+    """
+    state = session.scene
+    return pb.SceneGroupRefreshScNotify(
+        floor_id=state.floor_id,
+        dimension_id=state.dimension_id,
+        group_refresh_list=[
+            pb.GroupRefreshInfo(
+                group_id=int(group_id),
+                refresh_type=refresh_type,
+                group_info=pb.SceneEntityGroupInfo(
+                    group_id=int(group_id),
+                    state=1,
+                    entity_list=list(entities),
+                ),
+            )
+        ],
+    )
+
+
 def avatar_refresh_notify(
     session,
     *,

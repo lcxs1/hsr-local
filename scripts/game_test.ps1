@@ -277,7 +277,7 @@ $ChallengeRules = @(
     @{ Name = 'result';         Pattern = 'challenge battle result: .*phase=(\d+)/(\d+) .*win=(\w+)'; Shots = @(0) },
     @{ Name = 'battle-stats';   Pattern = 'battle stats: battle=(\d+) rounds=(\d+) turns=(\d+) auto_turns=(\d+) cost=(\d+)s monsters=(\d+) damage=(\d+)'; Shots = @() },
     @{ Name = 'waves';          Pattern = 'challenge battle waves: stage=(\d+) waves=';  Shots = @() },
-    @{ Name = 'advance';        Pattern = 'challenge advance \((sync|inplace|scene)\)';      Shots = @(0, 6, 14, 25) },
+    @{ Name = 'advance';        Pattern = 'challenge advance \((declare|sync|inplace|scene)\)'; Shots = @(0, 6, 14, 25) },
     @{ Name = 'advance-wait';   Pattern = 'challenge advance: waiting for client';           Shots = @(0) },
     @{ Name = 'settle';         Pattern = 'challenge settle:';                               Shots = @(0, 5) },
     @{ Name = 'leave';          Pattern = 'leave challenge:';                                Shots = @(0) },

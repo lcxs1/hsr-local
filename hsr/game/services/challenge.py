@@ -753,6 +753,67 @@ def _advance_sync(session, state: ChallengeState, phase: Phase) -> Transition:
     return Transition(before=before, after=after, new_scene=True)
 
 
+def _advance_declare(session, state: ChallengeState, phase: Phase) -> Transition:
+    """Phase switch **in place** by declaring the next maze group.
+
+    Same scene, no ``SyncServerSceneChangeNotify`` and therefore no client-side
+    stage reload (4.7 真机：发那个通知后客户端会 `AdventurePhase._EnterStep2` 重载
+    整个 stage，紧跟着进战斗就会卡在进场动画上）。组不是逐实体 patch，而是用
+    ``GroupRefreshInfo.group_info``（和 `SceneInfo.entity_group_list` 同一个
+    message）**声明**，也就是上半进场景时客户端认的那条路径。
+    """
+    previous = state.current
+    new_entities, monster_entity_id = scene_service.challenge_group_entities(
+        session,
+        plane_id=phase.node.plane_id,
+        group_id=phase.node.maze_group_id,
+        monster_id=phase.node.monster_id,
+        stage_id=phase.stage_id,
+        entry_id=phase.node.entrance_id,
+        base=scene_service.CHALLENGE_ENTITY_BASE + 10 * phase.index,
+    )
+    before: list = [pb.ChallengeLineupNotify(extra_lineup_type=phase.lineup_type)]
+    avatars = scene_service.avatar_refresh_notify(
+        session,
+        old_avatars=previous.team,
+        new_avatars=phase.team,
+    )
+    if avatars is not None:
+        before.append(avatars)
+    after: list = [
+        scene_service.declared_group_notify(
+            session, phase.node.maze_group_id, new_entities
+        )
+    ]
+    state.index = phase.index
+    session.scene.extra_groups = [
+        pb.SceneEntityGroupInfo(
+            group_id=int(phase.node.maze_group_id),
+            state=1,
+            entity_list=new_entities,
+        )
+    ]
+    session.scene.team = list(phase.team)
+    state.monster_entity_id = monster_entity_id
+    state.stage_id = phase.stage_id
+    state.battle_id = 0
+    state.battle_ids.clear()
+    session.battle_info = None
+    state.phase_start_rounds = int(state.rounds_left)
+    session.runtime.logger.info(
+        "challenge advance (declare): id=%d phase=%d->%d group=%d entities=%d"
+        " stage=%d team=%s",
+        state.challenge_id,
+        phase.index,
+        phase.index + 1,
+        phase.node.maze_group_id,
+        len(new_entities),
+        phase.stage_id,
+        phase.team,
+    )
+    return Transition(before=before, after=after)
+
+
 def advance(session, *, mode: str | None = None) -> Transition:
     """Switch the attempt to its next phase; returns the packets to send.
 
@@ -771,6 +832,8 @@ def advance(session, *, mode: str | None = None) -> Transition:
         return Transition()
 
     phase = state.phases[state.index + 1]
+    if mode == "declare":
+        return _advance_declare(session, state, phase)
     if mode == "sync":
         return _advance_sync(session, state, phase)
     same_scene = (
