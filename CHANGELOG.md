@@ -4,6 +4,8 @@
 
 ## 2026-11-11
 
+- **混沌回忆逻辑重写**（[design/04 §5.4](docs/design/04-混沌回忆模拟器口径.md)）：`services/challenge.py` 改成阶段状态机（`phases: list[Phase]`，`enter/enter_tierce/advance/enter_second_half`），阶段切换包序对齐参考实现（`ChallengeLineupNotify` → 角色组刷新 → 卸旧组 → 装新组，入口不变不重建 `SceneInfo`）；`[endgame] advance` 改 `inplace|scene|client`（旧 `refresh/none` 仍可读）。同时修：额外阵容 proto `index` 改 0、退出挑战发 `ChallengeLineupNotify(LineupNone)`+`SyncLineupNotify`、`CurChallenge.round_count/dead_avatar_num` 按战斗结果累计、`GetCurBattleInfoScRsp` 回空但存在的 `battle_info`（4.7.0 `_OnGetCurBattleInfoScRsp` NRE）、新增 `EnterChallengeNextPhase`/`RestartChallengePhase` handler、`GetCurSceneInfo`/场景装配改用场上这一队。221 单测 + `check.ps1` 全绿、回放新增上下半链；**未真机**。
+  依据：4.6.54 8 轮 + 4.7.0 5 轮真机反复出现「下半黑屏/节点二战斗被拒」，旧实现每次只打补丁；对照 HyacineCore 4.0（`NextPhase`/`PacketSceneGroupRefreshScNotify`/`LineupInfo.ToProto`）与 pearl-sr 逐条对齐。
 - 星启模式节点切换加 `advance = "refresh"` 探针：新增 `challenge_service.advance_tierce_refresh`（原地换组，`SceneGroupRefreshScNotify`），`_enter_second_half` 对 tierce 也走同一个 `[endgame] advance` 开关，默认改 `refresh`。依据：4.7.0 真机 21:35 节点一打完、重建 `SceneInfo` 进节点二时客户端「场景不对 + 战斗黑屏」，与 4.6.54 下半同症状，唯一没试过的路是原地换组。211 单测绿。
 - 传送卡死的时间假设**证伪**：7 s 成功 / 14 s 卡 / 14 s+压到 25 s 仍卡，5 轮数据表进 `design/04 §5.2`；`lobby_grace_seconds` 回退默认 0（代码留着当探针）。同会话内卡过后连点 5 次传送都救不回，只能重启客户端。
 

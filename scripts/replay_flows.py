@@ -15,24 +15,34 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from hsr.replay import ReplayError, run_core_flow
+from hsr.replay import ReplayError, run_challenge_flow, run_core_flow
 
 
 async def _main(json_output: bool) -> int:
     try:
         result = await run_core_flow(strict=True)
+        challenge = await run_challenge_flow(strict=True)
     except ReplayError as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
         return 1
 
     if json_output:
-        print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+        print(
+            json.dumps(
+                {"core": result.to_dict(), "challenge": challenge.to_dict()},
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
     else:
         print("PASS: login -> scene -> lineup -> avatar path -> battle -> retry")
         print(f"  battle ids: {result.battle_ids}")
         print(f"  lineup base: {result.lineup_base}")
         print(f"  avatar form: {result.avatar_form}")
         print(f"  events: {', '.join(result.events)}")
+        print("PASS: challenge -> 上半 -> 换组 -> 下半 -> 结算 -> 退出")
+        print(f"  battle ids: {challenge.battle_ids}")
+        print(f"  events: {', '.join(challenge.events)}")
     return 0
 
 

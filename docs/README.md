@@ -82,8 +82,8 @@
 |---|---|---|
 | 客户端版本（默认） | 4.6.54 / `OSBETAWin4.6.54` / build `16927089` | `versions/4.6.54.toml` |
 | 客户端版本（4.7.0） | `CNPRODWin4.7.0` / build `17108910` | `versions/4.7.0.toml`，用 `--profile 4.7.0` 切换 |
-| handler | **74** | `hsr/game/handlers/*.py` 的 `router.add(...)` |
-| 单测 | **193** | `.venv\Scripts\python.exe -m unittest discover -s tests` |
+| handler | **78** | `hsr/game/handlers/*.py` 的 `router.add(...)` |
+| 单测 | **221** | `.venv\Scripts\python.exe -m unittest discover -s tests` |
 | freesr 角色/遗器/光锥 | 99 / 418 / 87 | `data/freesr-data.json` |
 | 教程/指南组/子指南 | 1269 / 864 / 1509 | `data/tutorials.json` |
 | 主线/任务/活动 | 2205 / 6018 / 347 | `data/progress.json` |

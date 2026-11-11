@@ -104,6 +104,24 @@ async def on_cast_skill(session: Session, req: pb.SceneCastSkillCsReq) -> pb.Sce
     if not targets:
         targets = [challenge.monster_entity_id]
     targets = [entity_id for entity_id in targets if entity_id]
+    # 换半场后场上怪物的实体 id 会变（1000 -> 1010）；客户端偶尔还拿旧 id 施放，
+    # 这时回一个已经删掉的实体 id 会让它开不了战斗。只认当前场景里存在的实体。
+    known = {
+        int(entity.entity_id)
+        for group in session.scene.extra_groups
+        for entity in group.entity_list
+    }
+    if known:
+        stale = [entity_id for entity_id in targets if entity_id not in known]
+        if stale:
+            session.runtime.logger.info(
+                "scene cast skill: stale target(s) %s, using current monster %d",
+                stale,
+                challenge.monster_entity_id,
+            )
+        targets = [entity_id for entity_id in targets if entity_id in known]
+    if not targets:
+        targets = [challenge.monster_entity_id]
     info = challenge_service.battle_info(session)
     session.runtime.logger.info(
         "scene cast skill -> challenge battle: challenge=%d mode=%s stage=%d targets=%s",

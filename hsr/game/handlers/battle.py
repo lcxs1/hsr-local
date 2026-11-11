@@ -89,53 +89,21 @@ async def on_quick_start_cocoon(
     )
 
 
-async def _enter_second_half(session: Session) -> None:
-    """Move the attempt to 下半 according to ``[endgame] advance``.
+async def _advance_phase(session: Session, rsp: pb.PVEBattleResultScRsp) -> None:
+    """Advance to the next challenge phase, framed around the result ack.
 
-    * ``scene``   — rebuild node2 and ``EnterSceneByServerScNotify`` (LunarCore).
-      4.6.54 accepts it (the player can reach and attack the 下半 monster).
-    * ``refresh`` — same scene, swap the maze group (DanhengServer).  4.6.54
-      crashes in the client's ``_RefreshGroup_Legacy``, kept for A/B only.
-    * ``none``    — only the result ack; the client must send ``StartChallenge``
-      itself (pearl flow), handled in ``on_start_challenge``.
+    ``challenge_service.advance`` splits its packets in two: lineup/challenge
+    messages go out **before** ``PVEBattleResultScRsp`` (the client is still in
+    the fight state there and processes them — reference behaviour), while the
+    scene group refreshes go out **after** it, because some clients ignore scene
+    refresh packets that arrive mid-battle.
     """
-    state = getattr(session, "challenge", None)
-    tierce = bool(state is not None and getattr(state, "tierce", False))
-    # 星启模式的节点切换也用同一个开关（4.7.0 真机：scene 重建进节点二会黑屏，
-    # 和 4.6.54 下半同一症状，所以 refresh = 原地换组是下一个要试的）。
-    mode = session.runtime.cfg.endgame.advance
-    if mode == "none":
-        session.runtime.logger.info("challenge advance: skipped (advance=none)")
-        return
-    if mode == "refresh":
-        refresh, lineup = (
-            challenge_service.advance_tierce_refresh(session)
-            if tierce
-            else challenge_service.advance_stage(session)
-        )
-        await session.send(refresh)
-        await session.send(
-            pb.ChallengeLineupNotify(extra_lineup_type=lineup.extra_lineup_type)
-        )
-        await session.send(pb.SyncLineupNotify(lineup=lineup))
-        return
-    scene = (
-        challenge_service.advance_tierce(session)
-        if tierce
-        else challenge_service.advance_scene(session)
-    )
-    lineup = challenge_service.lineup_info(session)
-    await session.send(
-        pb.ChallengeLineupNotify(extra_lineup_type=lineup.extra_lineup_type)
-    )
-    await session.send(pb.SyncLineupNotify(lineup=lineup))
-    await session.send(
-        pb.EnterSceneByServerScNotify(
-            reason=pb.EnterSceneReason.Value("ENTER_SCENE_REASON_NONE"),
-            lineup=lineup,
-            scene=scene,
-        )
-    )
+    transition = challenge_service.advance(session)
+    for message in transition.before:
+        await session.send(message)
+    await session.send(rsp)
+    for message in transition.after:
+        await session.send(message)
 
 
 async def on_pve_result(session: Session, req: pb.PVEBattleResultCsReq) -> pb.PVEBattleResultScRsp:
@@ -183,19 +151,25 @@ async def on_pve_result(session: Session, req: pb.PVEBattleResultCsReq) -> pb.PV
     )
     if challenge is not None and owns_battle:
         won = req.end_status == pb.BattleEndStatus.Value("BATTLE_END_WIN")
+        challenge_service.apply_result_stats(session, req)
         session.runtime.logger.info(
-            "challenge battle result: challenge=%d mode=%s stage=%d win=%s",
+            "challenge battle result: challenge=%d mode=%s phase=%d/%d stage=%d"
+            " win=%s rounds_left=%d dead=%d",
             challenge.challenge_id,
             challenge.mode,
+            challenge.index + 1,
+            len(challenge.phases),
             challenge.stage_id,
             won,
+            challenge.rounds_left,
+            challenge.dead_avatars,
         )
+        if won and challenge_service.can_advance(session):
+            await _advance_phase(session, rsp)
+            return None
         # Settlement must follow the result ack; without the notify the client
         # stays in the arena and respawns the monster forever.
         await session.send(rsp)
-        if won and challenge_service.can_advance(session):
-            await _enter_second_half(session)
-            return None
         await session.send(challenge_service.settle_notify(session, win=won))
         if getattr(challenge, "direct", False):
             await _leave_direct(session)
@@ -213,11 +187,19 @@ async def _leave_direct(session: Session) -> None:
     session.lobby_return = None
     session.scene = scene_service.SceneState.from_config(session.runtime.cfg.world)
     scene = scene_service.build_scene(session)
+    lineup = lineup_service.build_lineup(session)
+    # 同 LeaveChallenge：把额外阵容关掉，否则客户端在野外还用 LineupChallenge2。
+    await session.send(
+        pb.ChallengeLineupNotify(
+            extra_lineup_type=pb.ExtraLineupType.ExtraLineupType_LineupNone
+        )
+    )
+    await session.send(pb.SyncLineupNotify(lineup=lineup))
     await session.send(pb.QuitBattleScNotify())
     await session.send(
         pb.EnterSceneByServerScNotify(
             reason=pb.EnterSceneReason.Value("ENTER_SCENE_REASON_NONE"),
-            lineup=lineup_service.build_lineup(session),
+            lineup=lineup,
             scene=scene,
         )
     )
@@ -228,9 +210,20 @@ async def _leave_direct(session: Session) -> None:
 async def on_get_cur_battle(
     session: Session, req: pb.GetCurBattleInfoCsReq
 ) -> pb.GetCurBattleInfoScRsp:
+    """``GetCurBattleInfoCsReq``: the active fight, or an **empty but present**
+    ``battle_info``.
+
+    4.7.0 真机 ``Player.log``（每次登录一条）：
+    ``RPG.Client.AdventureModule._OnGetCurBattleInfoScRsp`` 抛
+    ``NullReferenceException`` —— 客户端会直接解引用 ``battle_info``，回空 body
+    就 NRE。参考实现（Danheng ``PacketGetCurBattleInfoScRsp``）同样固定塞一个空
+    ``SceneBattleInfo``，不是省略字段。
+    """
     active = getattr(session, "battle_info", None)
     if active is None:
-        return pb.GetCurBattleInfoScRsp()
+        return pb.GetCurBattleInfoScRsp(
+            retcode=0, battle_info=pb.SceneBattleInfo()
+        )
     return pb.GetCurBattleInfoScRsp(battle_info=active)
 
 

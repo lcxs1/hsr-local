@@ -39,7 +39,10 @@ class ChallengeBattleTest(unittest.IsolatedAsyncioTestCase):
         # field 7 = monster_wave_length in 4.6.54 (obfuscated as JAOIOKBBMFC);
         # pearl-sr always fills it, and a stale 0 can break multi-wave loading.
         self.assertEqual(info.JAOIOKBBMFC, len(stage.waves))
-        self.assertEqual(info.rounds_limit, 30)
+        # 轮次上限来自挑战配置（ChallengeCountDown）；PF 才是固定 4。
+        self.assertEqual(
+            info.rounds_limit, self.rt.endgame.challenge(1101).countdown
+        )
         self.assertGreater(len(info.battle_avatar_list), 0)
         self.assertEqual(len(rsp.monster_battle_info), 1)
         self.assertEqual(
@@ -73,18 +76,37 @@ class ChallengeBattleTest(unittest.IsolatedAsyncioTestCase):
         state, _scene, rsp = await self._cast(30011)
         info = rsp.battle_info
         self.assertEqual(state.mode, "AS")
+        # 末日幻影的配置行没有 ChallengeCountDown（countdown=0）→ 兜底 30。
+        self.assertEqual(self.rt.endgame.challenge(30011).countdown, 0)
         self.assertEqual(info.rounds_limit, 30)
         self.assertEqual(info.battle_target_info[1].battle_target_list[0].id, 90005)
         self.assertEqual(len(rsp.monster_battle_info), 1)
 
     async def test_hit_target_overrides_monster(self) -> None:
-        challenge_service.enter(self.session, 1101)
+        """客户端指名打哪只怪就用哪只；不存在的 id 回落到当前怪。
+
+        换半场后场上怪物实体 id 会变（1000 → 1010）。客户端偶尔还拿旧 id 施放，
+        回一个已删掉的实体 id 会让它开不了战斗，所以这里必须过滤。
+        """
+        state, _scene = challenge_service.enter(self.session, 1101)
         rsp = await scene_handlers.on_cast_skill(
+            self.session,
+            pb.SceneCastSkillCsReq(
+                cast_entity_id=1,
+                hit_target_entity_id_list=[state.monster_entity_id],
+            ),
+        )
+        self.assertEqual(
+            rsp.monster_battle_info[0].target_monster_entity_id,
+            state.monster_entity_id,
+        )
+        stale = await scene_handlers.on_cast_skill(
             self.session,
             pb.SceneCastSkillCsReq(cast_entity_id=1, hit_target_entity_id_list=[4242]),
         )
         self.assertEqual(
-            rsp.monster_battle_info[0].target_monster_entity_id, 4242
+            stale.monster_battle_info[0].target_monster_entity_id,
+            state.monster_entity_id,
         )
 
     async def test_explicit_avatars(self) -> None:

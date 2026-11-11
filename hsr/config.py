@@ -84,12 +84,13 @@ class EndgameSettings(BaseModel):
 
     moc_group_id: int = 0
     unlock_all: bool = True
-    # 上半打完怎么进下半（真机 A/B 用，一次只改一个）：
-    #   scene   = 重建 node2 的 SceneInfo，走 EnterSceneByServerScNotify（LunarCore 做法）
-    #   refresh = 同场景原地换实体组，发 SceneGroupRefreshScNotify（DanhengServer 做法；
-    #             4.6.54 客户端在 _RefreshGroup_Legacy 里 NRE，暂不默认）
-    #   none    = 只回 PVEBattleResultScRsp，等客户端自己发 StartChallenge（pearl 流程）
-    advance: Literal["scene", "refresh", "none"] = "scene"
+    # 一个阶段（上半 / 星启节点）打完怎么进下一个（真机 A/B 用，一次只改一个）：
+    #   inplace = 同场景原地换组：ChallengeLineupNotify + 角色组刷新 +
+    #             SceneGroupRefreshScNotify（卸旧组/装新组，参考实现做法，默认）
+    #   scene   = 重建下一个节点的 SceneInfo 再 EnterSceneByServerScNotify
+    #             （LunarCore 做法；4.6.54/4.7.0 下半黑屏就是这条路）
+    #   client  = 只回战斗结果，等客户端自己发 StartChallenge（pearl 流程）
+    advance: Literal["inplace", "scene", "client"] = "inplace"
     # 忘却之庭大厅报哪些场景组（客户端按“已加载组”创建地图 NPC）：
     #   all      = 全部道具（含车厢装饰）
     #   crystals = 只报可交互展台（prop_id >= 100000）
@@ -112,6 +113,13 @@ class EndgameSettings(BaseModel):
     lobby_grace_seconds: float = 25.0
     group_list: Literal["all", "rewards"] = "all"
     send_max_level: bool = False
+
+    @field_validator("advance", mode="before")
+    @classmethod
+    def _legacy_advance(cls, value):
+        """Old probe values (``refresh``/``none``) still work after the rewrite."""
+        legacy = {"refresh": "inplace", "none": "client"}
+        return legacy.get(str(value).lower(), str(value).lower())
 
 
 class PlayerSettings(BaseModel):

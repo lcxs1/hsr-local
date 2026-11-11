@@ -18,6 +18,7 @@ from pathlib import Path
 
 from hsr.game.handlers import avatar as avatar_handlers
 from hsr.game.handlers import battle as battle_handlers
+from hsr.game.handlers import challenge as challenge_handlers
 from hsr.game.handlers import lineup as lineup_handlers
 from hsr.game.handlers import login as login_handlers
 from hsr.game.handlers import scene as scene_handlers
@@ -237,5 +238,159 @@ async def run_core_flow(rt=None, *, strict: bool = False) -> ReplayResult:
         await battle_handlers.on_quit_battle(session, pb.QuitBattleCsReq())
         _check(session.battle_info is None, "quit did not clear the active battle")
         result.events.append("battle_quit")
+
+    return result
+
+
+async def run_challenge_flow(
+    rt=None, *, strict: bool = False, challenge_id: int | None = None
+) -> ReplayResult:
+    """Run 混沌回忆 two-half: start → 上半 → 换组 → 下半 → 结算 → 退出.
+
+    This is the chain that kept regressing (下半黑屏).  It asserts the reference
+    packet sequence of the phase switch, the two teams, and that only the last
+    phase settles.
+    """
+    if rt is None:
+        from hsr.runtime import Runtime
+
+        rt = Runtime.load(strict=strict)
+
+    with tempfile.TemporaryDirectory(prefix="hsr-replay-") as tmp:
+        save = SaveStore(path=Path(tmp) / "player.json", player=copy.deepcopy(rt.save.player))
+        local = replace(rt, save=save)
+        local.cfg.endgame.advance = "inplace"
+        session = ReplaySession(local)
+        result = ReplayResult()
+
+        data = local.endgame
+        challenge = None
+        if challenge_id is not None:
+            challenge = data.challenge(challenge_id)
+        else:
+            group = data.active_group("MOC") or 100
+            candidates = [
+                entry
+                for entry in data.challenges.values()
+                if entry.group_id == group and entry.node2 is not None
+            ]
+            challenge = min(candidates, key=lambda entry: entry.id) if candidates else None
+        if challenge is None or challenge.node2 is None:
+            raise ReplayError("no two-half MOC challenge in the data pack")
+
+        first = [entry for entry in session.lineup.slots if entry][:4]
+        second = list(reversed(first))
+        start = await challenge_handlers.on_start_challenge(
+            session,
+            pb.StartChallengeCsReq(
+                challenge_id=challenge.id,
+                avatar_lineup_first=[pb.AvatarLineup(id=int(a)) for a in first],
+                avatar_lineup_second=[pb.AvatarLineup(id=int(a)) for a in second],
+            ),
+        )
+        _check(start.retcode == 0, "start challenge failed")
+        _check(
+            len(start.lineup_list) == 2,
+            "StageNum >= 2 must carry both phase lineups",
+        )
+        _check(
+            start.lineup_list[0].extra_lineup_type
+            == pb.ExtraLineupType.ExtraLineupType_LineupChallenge,
+            "first lineup is not LineupChallenge",
+        )
+        _check(
+            start.lineup_list[1].extra_lineup_type
+            == pb.ExtraLineupType.ExtraLineupType_LineupChallenge2,
+            "second lineup is not LineupChallenge2",
+        )
+        _check(start.scene.entry_id == challenge.node1.entrance_id, "上半 scene mismatch")
+        session.sent.clear()
+        result.events.append("challenge_start")
+
+        async def fight() -> pb.SceneCastSkillScRsp:
+            cast = await scene_handlers.on_cast_skill(
+                session, pb.SceneCastSkillCsReq(cast_entity_id=1)
+            )
+            _check(cast.HasField("battle_info"), "challenge cast returned no battle")
+            _check(
+                cast.battle_info.stage_id == session.challenge.stage_id,
+                "battle stage does not match the phase",
+            )
+            return cast
+
+        async def finish(cast: pb.SceneCastSkillScRsp) -> None:
+            await battle_handlers.on_pve_result(
+                session,
+                pb.PVEBattleResultCsReq(
+                    battle_id=cast.battle_info.battle_id,
+                    stage_id=cast.battle_info.stage_id,
+                    end_status=pb.BattleEndStatus.BATTLE_END_WIN,
+                ),
+            )
+
+        upper = await fight()
+        _check(
+            [avatar.id for avatar in upper.battle_info.battle_avatar_list]
+            == [local.roster.base_id(a) for a in first][: len(upper.battle_info.battle_avatar_list)],
+            "上半 battle uses the wrong team",
+        )
+        result.events.append("challenge_battle_1")
+
+        session.sent.clear()
+        await finish(upper)
+        names = [type(message).__name__ for message in session.sent]
+        _check("ChallengeSettleNotify" not in names, "上半 must not settle the run")
+        _check("EnterSceneByServerScNotify" not in names, "inplace switch rebuilt the scene")
+        _check(
+            names[0] == "ChallengeLineupNotify",
+            f"lineup switch must precede the result ack: {names}",
+        )
+        _check(
+            names.index("PVEBattleResultScRsp") < len(names) - 1,
+            f"group refresh must follow the result ack: {names}",
+        )
+        groups = [
+            entry.group_id
+            for message in session.sent
+            if type(message).__name__ == "SceneGroupRefreshScNotify"
+            for entry in message.group_refresh_list
+        ]
+        _check(challenge.node1.maze_group_id in groups, "old arena group was not unloaded")
+        _check(challenge.node2.maze_group_id in groups, "new arena group was not loaded")
+        result.events.append("challenge_advance")
+
+        lower = await fight()
+        _check(lower.battle_info.stage_id == challenge.node2.stage_id, "下半 stage mismatch")
+        _check(
+            [avatar.id for avatar in lower.battle_info.battle_avatar_list]
+            == [local.roster.base_id(a) for a in second][: len(lower.battle_info.battle_avatar_list)],
+            "下半 battle uses the wrong team",
+        )
+        result.battle_ids.extend([upper.battle_info.battle_id, lower.battle_info.battle_id])
+        result.events.append("challenge_battle_2")
+
+        session.sent.clear()
+        await finish(lower)
+        names = [type(message).__name__ for message in session.sent]
+        _check("ChallengeSettleNotify" in names, "下半 did not settle the run")
+        settle = [message for message in session.sent if type(message).__name__ == "ChallengeSettleNotify"][0]
+        _check(settle.is_win and settle.star == 3, "settle payload is wrong")
+        _check(
+            settle.cur_challenge.status == pb.ChallengeStatus.CHALLENGE_FINISH,
+            "settle did not mark the run finished",
+        )
+        result.events.append("challenge_settle")
+
+        session.sent.clear()
+        await challenge_handlers.on_leave_challenge(session, pb.LeaveChallengeCsReq())
+        names = [type(message).__name__ for message in session.sent]
+        _check("ChallengeLineupNotify" in names, "leave did not reset the extra lineup")
+        _check(
+            session.sent[0].extra_lineup_type
+            == pb.ExtraLineupType.ExtraLineupType_LineupNone,
+            "leave did not switch the lineup back to LineupNone",
+        )
+        _check(session.challenge is None, "challenge state survived leave")
+        result.events.append("challenge_leave")
 
     return result

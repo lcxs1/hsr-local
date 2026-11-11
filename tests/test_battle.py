@@ -295,7 +295,12 @@ class BattleTest(unittest.IsolatedAsyncioTestCase):
         empty = await battle_handlers.on_get_cur_battle(
             self.session, pb.GetCurBattleInfoCsReq()
         )
-        self.assertFalse(empty.HasField("battle_info"))
+        # 4.7.0 客户端会直接解引用 battle_info（Player.log 里
+        # AdventureModule._OnGetCurBattleInfoScRsp 的 NRE），所以没有战斗时也要
+        # 回一个**存在但为空**的子消息，而不是省略字段。
+        self.assertTrue(empty.HasField("battle_info"))
+        self.assertEqual(empty.battle_info.stage_id, 0)
+        self.assertEqual(len(empty.battle_info.monster_wave_list), 0)
 
 
 if __name__ == "__main__":

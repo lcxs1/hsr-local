@@ -59,6 +59,10 @@ class SceneState:
     prop_states: dict[int, int] = field(default_factory=dict)
     # 挑战场景的非 avatar 实体组（NPC 怪 + props）。普通世界为空，走 calyx 组。
     extra_groups: list[pb.SceneEntityGroupInfo] = field(default_factory=list)
+    # 挑战场景里“场上这一队”的基座 id（上半 / 下半 / 星启节点各不相同）。
+    # 为空 = 用 session.lineup（野外阵容）。挑战结束后必须清掉，否则 GetCurSceneInfo
+    # 会把上一队的阵容当成野外阵容发出去。
+    team: list[int] | None = None
 
     @classmethod
     def from_config(cls, world) -> SceneState:
@@ -125,7 +129,13 @@ def avatar_entities(
     entities: list[pb.SceneEntityInfo] = []
     uid = _uid(session)
     world = session.runtime.cfg.world
-    slots = list(avatars) if avatars is not None else list(session.lineup.slots)
+    if avatars is not None:
+        slots = list(avatars)
+    elif session.scene.team:
+        # 挑战场景：场上这一队由 ChallengeState 决定，不是野外阵容。
+        slots = list(session.scene.team)
+    else:
+        slots = list(session.lineup.slots)
     for slot, avatar_id in enumerate(slots[: world.team_size]):
         if not avatar_id:
             continue
@@ -540,43 +550,148 @@ def _challenge_entities(
     return entities, monster_entity_id
 
 
-def swap_challenge_group(
+# 4.6.54/4.7.0 的 ``SceneGroupRefreshScNotify`` 必须按参考实现的**最小形状**发：
+# 只填 ``group_id`` / ``refresh_type=LOADED`` / ``refresh_entity(add_entity|
+# delete_entity)``，一个组一条 ``GroupRefreshInfo``。
+#
+# 之前的实现额外填了 ``state=0/1``、把「卸旧组 + 装新组」塞进同一个 notify，还在
+# 里面混了角色组刷新——4.6.54 客户端在 ``_RefreshGroup_Legacy`` 里直接 NRE
+# （见 guide/03 坑 35）。参考实现（HyacineCore 4.0 ``PacketSceneGroupRefreshScNotify``，
+# 同日 DanhengServer 同文件）一个字段都不多设。
+GROUP_REFRESH_LOADED = pb.SceneGroupRefreshType.SCENE_GROUP_REFRESH_TYPE_LOADED
+
+
+def group_refresh_notify(
     session,
     *,
+    add: list[pb.SceneEntityInfo] | None = None,
+    remove: list[pb.SceneEntityInfo] | None = None,
+) -> pb.SceneGroupRefreshScNotify:
+    """One ``SceneGroupRefreshScNotify`` with per-group add/delete lists.
+
+    ``remove`` entries only need ``group_id`` + ``entity_id``; ``add`` entries are
+    full ``SceneEntityInfo`` messages.  Resulting ``GroupRefreshInfo`` keeps the
+    reference shape (no ``state``, no ``group_info``, no combined groups).
+    """
+    state = session.scene
+    buckets: dict[int, pb.GroupRefreshInfo] = {}
+
+    def bucket(group_id: int) -> pb.GroupRefreshInfo:
+        info = buckets.get(int(group_id))
+        if info is None:
+            info = pb.GroupRefreshInfo(
+                group_id=int(group_id),
+                refresh_type=GROUP_REFRESH_LOADED,
+            )
+            buckets[int(group_id)] = info
+        return info
+
+    for entity in remove or []:
+        bucket(entity.group_id).refresh_entity.append(
+            pb.SceneEntityRefreshInfo(delete_entity=entity.entity_id)
+        )
+    for entity in add or []:
+        bucket(entity.group_id).refresh_entity.append(
+            pb.SceneEntityRefreshInfo(add_entity=entity)
+        )
+    return pb.SceneGroupRefreshScNotify(
+        floor_id=state.floor_id,
+        dimension_id=state.dimension_id,
+        group_refresh_list=list(buckets.values()),
+    )
+
+
+def unload_group_notify(
+    session, group_id: int, entities: list[pb.SceneEntityInfo]
+) -> pb.SceneGroupRefreshScNotify:
+    """Unload one maze group (delete every entity it owned)."""
+    return group_refresh_notify(
+        session,
+        remove=[
+            pb.SceneEntityInfo(
+                group_id=int(group_id),
+                entity_id=entity.entity_id,
+            )
+            for entity in entities
+        ],
+    )
+
+
+def load_group_notify(
+    session, group_id: int, entities: list[pb.SceneEntityInfo]
+) -> pb.SceneGroupRefreshScNotify:
+    """Load one maze group (add every entity, ids must not collide)."""
+    return group_refresh_notify(session, add=list(entities))
+
+
+def avatar_refresh_notify(
+    session,
+    *,
+    old_avatars: list[int],
+    new_avatars: list[int],
+) -> pb.SceneGroupRefreshScNotify | None:
+    """Re-sync the field team after a lineup switch (``Scene.SyncLineup``).
+
+    参考实现换半场时会把场上角色实体删掉再按新队加回来（Danheng
+    ``SceneInstance.SyncLineup``），否则客户端 3D 场景里还站着上半那队。
+    两队完全相同时返回 ``None``（不用发）。
+    """
+    old_ids = [int(avatar_id) for avatar_id in old_avatars if avatar_id]
+    new_ids = [int(avatar_id) for avatar_id in new_avatars if avatar_id]
+    if old_ids == new_ids:
+        return None
+    group_id = session.runtime.cfg.world.avatar_group_id
+    remove = [
+        pb.SceneEntityInfo(group_id=group_id, entity_id=slot + 1)
+        for slot in range(len(old_ids))
+    ]
+    add = avatar_entities(session, new_ids)
+    return group_refresh_notify(session, add=add, remove=remove)
+
+
+def challenge_spawn(
+    session, *, entry_id: int, group, fallback: tuple[int, int, int] = (0, 0, 0)
+) -> tuple[tuple[int, int, int], tuple[int, int, int]]:
+    """``(pos, rot)`` where the challenge arena puts the player.
+
+    Anchor row first (``Anchor.json`` covers most challenge entrances), then the
+    group's first NPC, then the caller's fallback.
+    """
+    anchor = session.runtime.endgame.anchor(entry_id)
+    if anchor:
+        return (
+            (int(anchor.get("x", 0)), int(anchor.get("y", 0)), int(anchor.get("z", 0))),
+            (int(anchor.get("rx", 0)), int(anchor.get("ry", 0)), int(anchor.get("rz", 0))),
+        )
+    if group is not None and group.monsters:
+        return group.monsters[0].pos, (0, 0, 0)
+    return fallback, (0, 0, 0)
+
+
+def challenge_group_entities(
+    session,
+    *,
+    plane_id: int,
     group_id: int,
     monster_id: int,
     stage_id: int,
-) -> tuple[pb.SceneGroupRefreshScNotify, int]:
-    """Replace the arena's maze group in place (上半 -> 下半).
+    entry_id: int,
+    base: int = CHALLENGE_ENTITY_BASE,
+) -> tuple[list[pb.SceneEntityInfo], int]:
+    """Build (not apply) one challenge maze group's entities + trigger entity id.
 
-    Reference behaviour (DanhengServer ``ChallengeMemoryInstance.AdvanceStage``,
-    LunarCore ``ChallengeInstance.advanceStage``): the client stays in the same
-    scene; the server unloads ``MazeGroupID1``, loads ``MazeGroupID2`` and sends
-    ``SceneGroupRefreshScNotify``.  Rebuilding a whole ``SceneInfo`` instead makes
-    the client lose its arena/battle-area binding — that is the 4.6.54 下半黑屏.
-
-    Only the maze groups are touched here; the field team is switched by
-    ``ChallengeLineupNotify`` + ``SyncLineupNotify``.  Returns
-    ``(notify, monster_entity_id)``.
+    Used by both the initial ``SceneInfo`` and the mid-run group swap, so the two
+    paths can never disagree about entity ids or the NPC override.
     """
-    runtime = session.runtime
-    state = session.scene
-    spec = runtime.endgame.scene(state.plane_id)
+    spec = session.runtime.endgame.scene(plane_id)
     group = spec.groups.get(int(group_id)) if spec is not None else None
-
-    anchor = runtime.endgame.anchor(state.entry_id)
-    if anchor:
-        pos = (int(anchor.get("x", 0)), int(anchor.get("y", 0)), int(anchor.get("z", 0)))
-        rot = (int(anchor.get("rx", 0)), int(anchor.get("ry", 0)), int(anchor.get("rz", 0)))
-    elif group is not None and group.monsters:
-        pos = group.monsters[0].pos
-        rot = (0, 0, 0)
-    else:
-        pos = state.position
-        rot = (0, 0, 0)
-
-    half = int(getattr(session.challenge, "stage", 1) or 1)
-    entities, monster_entity_id = _challenge_entities(
+    pos, rot = challenge_spawn(
+        session,
+        entry_id=entry_id,
+        group=group,
+        fallback=session.scene.position,
+    )
+    return _challenge_entities(
         session,
         group=group,
         group_id=int(group_id),
@@ -584,49 +699,24 @@ def swap_challenge_group(
         stage_id=stage_id,
         pos=pos,
         rot=rot,
-        base=CHALLENGE_ENTITY_BASE + 10 * half,
+        base=base,
     )
 
-    # 只换迷宫组，而且用新的实体 id（1000 段按半场递增）。4.6.54 的
-    # ``_RefreshGroup_Legacy`` 对“同一分组删了又加同一批实体”“刷角色组”都会 NRE，
-    # 那两个写法已经试过并排除。
-    refreshes: list[pb.GroupRefreshInfo] = []
-    for old_group in state.extra_groups:
-        refreshes.append(
-            pb.GroupRefreshInfo(
-                group_id=int(old_group.group_id),
-                state=0,
-                refresh_type=pb.SceneGroupRefreshType.SCENE_GROUP_REFRESH_TYPE_LOADED,
-                refresh_entity=[
-                    pb.SceneEntityRefreshInfo(delete_entity=entity.entity_id)
-                    for entity in old_group.entity_list
-                ],
-            )
-        )
-    refreshes.append(
-        pb.GroupRefreshInfo(
-            group_id=int(group_id),
-            state=1,
-            refresh_type=pb.SceneGroupRefreshType.SCENE_GROUP_REFRESH_TYPE_LOADED,
-            refresh_entity=[
-                pb.SceneEntityRefreshInfo(add_entity=entity) for entity in entities
-            ],
-        )
-    )
 
-    state.extra_groups = (
-        [pb.SceneEntityGroupInfo(group_id=int(group_id), state=1, entity_list=entities)]
-        if entities
-        else []
+def move_notify(session, avatars: list[int] | None = None) -> pb.SceneEntityMoveScNotify:
+    """``SceneEntityMoveScNotify`` holding the player's current position.
+
+    Danheng ``MoveTo`` sends this after a phase switch so the client snaps the
+    whole team to the new arena start.
+    """
+    state = session.scene
+    entity_id = session.runtime.cfg.world.leader_entity_id
+    return pb.SceneEntityMoveScNotify(
+        entity_id=entity_id,
+        entry_id=state.entry_id,
+        client_pos_version=state.client_pos_version,
+        motion=_motion(session),
     )
-    state.position = pos
-    state.client_pos_version += 1
-    notify = pb.SceneGroupRefreshScNotify(
-        floor_id=state.floor_id,
-        dimension_id=state.dimension_id,
-        group_refresh_list=refreshes,
-    )
-    return notify, monster_entity_id
 
 
 def build_challenge_scene(
@@ -664,21 +754,7 @@ def build_challenge_scene(
 
     spec = endgame.scene(plane_id)
     group = spec.groups.get(int(group_id)) if spec is not None else None
-
-    # Anchor coverage is partial (most challenge entrances are virtual and have no
-    # Anchor.json row), so fall back to the arena: the first NPC monster, then
-    # origin.  The client is authoritative for movement and corrects us on the
-    # first SceneEntityMove anyway.
-    anchor = endgame.anchor(entry_id)
-    if anchor:
-        pos = (int(anchor.get("x", 0)), int(anchor.get("y", 0)), int(anchor.get("z", 0)))
-        rot = (int(anchor.get("rx", 0)), int(anchor.get("ry", 0)), int(anchor.get("rz", 0)))
-    elif group is not None and group.monsters:
-        pos = group.monsters[0].pos
-        rot = (0, 0, 0)
-    else:
-        pos = (0, 0, 0)
-        rot = (0, 0, 0)
+    pos, _rot = challenge_spawn(session, entry_id=entry_id, group=group)
 
     state.plane_id = int(plane_id)
     state.floor_id = int(floor_id)
@@ -690,6 +766,7 @@ def build_challenge_scene(
     state.position = pos
     state.client_pos_version += 1
     state.prop_states = {}
+    state.team = list(avatars) if avatars else list(session.lineup.slots)
     state.saved_data = {
         str(item["name"]): int(item["value"])
         for item in endgame.floors.get(int(floor_id), [])
@@ -703,7 +780,7 @@ def build_challenge_scene(
         monster_id=monster_id,
         stage_id=stage_id,
         pos=pos,
-        rot=rot,
+        rot=_rot,
     )
 
     groups = [

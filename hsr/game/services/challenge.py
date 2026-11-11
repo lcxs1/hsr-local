@@ -1,14 +1,39 @@
-"""Challenge (MoC / PF / AS) session state, scene entry and battle payloads.
+"""Challenge (混沌回忆 / 虚构叙事 / 末日幻影 / 星启模式) phase state machine.
 
-The client's endgame flow is *not* "start command -> battle": it enters a
-challenge scene with ``StartChallengeScRsp.scene``, walks up to the NPC monster
-and casts a skill at it.  That cast (``SceneCastSkillCsReq``) is where the
-server must hand over the real ``SceneBattleInfo``; it is built here from
-``EndgameData`` + the session lineup.
+Why this module exists in this shape
+-----------------------------------
+A challenge is **not** "one command -> one battle".  It is a sequence of
+*phases* (节点/半场), each with its own arena group, its own team and its own
+battle stage:
 
-S2 scope: state + scene entry + battle payload.  ``StartChallenge`` itself
-(and the settle/leave chain) is wired in later steps, so nothing calls
-:func:`enter` yet.
+    混沌回忆 1 层 = 上半（node1, 队伍一, LineupChallenge）
+                 + 下半（node2, 队伍二, LineupChallenge2）
+    4.7 星启模式  = 三个节点（三套队伍, LineupChallenge/2/3）
+
+Everything else (scene entry, battle payload, settlement, leave) is derived from
+:class:`Phase`.  That is the whole point of this rewrite: the previous version
+kept ``node``/``second``/``stage``/``tierce_nodes``/``tierce_teams`` as five
+parallel half-states and patched each symptom (``advance=none|refresh|scene``)
+separately, which is why the same 下半 problems kept coming back.
+
+The transition itself follows the newest reference implementation
+(HyacineCore 4.0 ``ChallengeMemoryInstance.NextPhase`` / DanhengServer
+``AdvanceStage``) *packet for packet*:
+
+    1. ``ChallengeLineupNotify`` with the next phase's ``extra_lineup_type``
+    2. avatar group re-sync (``SceneGroupRefreshScNotify``, new team on field)
+    3. unload the previous maze group   (``SceneGroupRefreshScNotify``)
+    4. load the next maze group         (``SceneGroupRefreshScNotify``)
+
+with ``[endgame] advance``:
+
+* ``inplace`` (default) — the four packets above; same scene, no ``SceneInfo``
+  rebuild.  This is what the references do.
+* ``scene``   — rebuild the next phase's ``SceneInfo`` and push it with
+  ``EnterSceneByServerScNotify`` (LunarCore style, the 4.6.54 black-screen path;
+  kept only as an A/B probe).
+* ``client``  — push nothing and wait for the client to send ``StartChallenge``
+  again (pearl-sr style, works only if the client drives the phase itself).
 """
 
 from __future__ import annotations
@@ -35,7 +60,63 @@ AS_TARGET_ID = 90005
 PF_HIGH_STAGE = 30309011
 # 虚构叙事的积分档 id（pearl-sr 对 20000 < id < 30000 的挑战回 40000）。
 PF_SCORE_ID = 40000
+# 混沌回忆/末日幻影的轮次上限（剧情/PF 是 4）。
+DEFAULT_ROUNDS = 30
 FORMAL = pb.AvatarType.AvatarType_AvatarFormalType
+
+# 每个阶段用哪套额外阵容。第一层/上半 = Challenge，第二层/下半 = Challenge2，
+# 星启第三节点 = Challenge3。参考实现里 extra lineup 的 proto ``index`` 一律 0
+# （Danheng ``LineupInfo.ToProto``: ``if LineupType != LineupNone info.Index = 0``），
+# 只有普通阵容才用 0..8 —— 旧实现把它写成 ``type + 10`` 是误读那个**存储键**。
+PHASE_LINEUP_TYPES = (
+    pb.ExtraLineupType.ExtraLineupType_LineupChallenge,
+    pb.ExtraLineupType.ExtraLineupType_LineupChallenge2,
+    pb.ExtraLineupType.ExtraLineupType_LineupChallenge3,
+)
+
+
+# ---------------------------------------------------------------------- models
+@dataclass
+class Phase:
+    """One battle of a challenge: arena group + team + lineup slot."""
+
+    index: int
+    node: ChallengeNode
+    team: list[int]
+    lineup_type: int
+
+    @property
+    def stage_id(self) -> int:
+        return int(self.node.stage_id)
+
+    @property
+    def label(self) -> str:
+        return ("上半", "下半", "第三节", "第四节")[min(self.index, 3)]
+
+
+@dataclass
+class Transition:
+    """Packets a phase switch needs, split around the battle-result ack.
+
+    ``before`` goes out **before** ``PVEBattleResultScRsp`` (the client is still
+    in the fight state and does process challenge/lineup messages there — that is
+    what the reference does).  ``after`` goes out **after** the ack: scene group
+    refreshes are dropped by some clients while a battle is running
+    (reference comment: "Some clients ignore scene refresh packets while in
+    battle; resend the removals after battle result").
+    """
+
+    before: list = field(default_factory=list)
+    after: list = field(default_factory=list)
+    settled: bool = False
+    new_scene: bool = False
+
+    @property
+    def messages(self) -> list:
+        return [*self.before, *self.after]
+
+    def __bool__(self) -> bool:
+        return bool(self.before or self.after)
 
 
 @dataclass
@@ -43,122 +124,108 @@ class ChallengeState:
     """One active challenge attempt (owned by the session)."""
 
     challenge_id: int = 0
-    mode: str = ""
-    node: ChallengeNode = field(default_factory=ChallengeNode)
-    second: bool = False
+    mode: str = MOC
+    phases: list[Phase] = field(default_factory=list)
+    index: int = 0
     # True = 由 ``/debug/challenge`` 直接把玩家丢进 arena（不经忘却之庭大厅）。
     # 结算后要自己把玩家送回世界场景，因为没有 LeaveChallenge 可走。
     direct: bool = False
     buff_ids: list[int] = field(default_factory=list)
-    # Base avatar ids chosen for this attempt (empty = use the current lineup).
-    # 上半与下半是两套队伍：客户端在点水晶后的队伍配置界面里同时下发
-    # ``avatar_lineup_first`` / ``avatar_lineup_second``（4.6.54 实测，
-    # StartChallengeCsReq 58 字节）。只存第一套会让下半继续用上半的队伍
-    # （2026-11-11 真机）。``avatars`` 保留为"当前这一半的队伍"。
-    avatars: list[int] = field(default_factory=list)
-    first_avatars: list[int] = field(default_factory=list)
-    second_avatars: list[int] = field(default_factory=list)
-
-    # 4.7.0「星启模式」：一层 = 3 个节点、3 套队伍，协议是 ``StartChallengeTierce``
-    # （混沌回忆 12 层的编队界面就是它）。``stage_index`` 是当前节点（0/1/2），
-    # ``tierce_teams`` 是客户端一次下发的三套阵容。
-    tierce: bool = False
-    stage_index: int = 0
-    tierce_teams: list[list[int]] = field(default_factory=list)
-    # 星启模式的三个节点（见 ``tierce_nodes``）。
-    tierce_nodes: list = field(default_factory=list)
-
+    # 剩余轮次（``CurChallenge.round_count = countdown - rounds_left``）与阵亡人数：
+    # 客户端 HUD 与结算星级都读这两个数，旧实现从不更新，永远显示「剩余轮 30」。
+    rounds_left: int = 0
+    # 本半场开始时的剩余轮次：客户端「重打本半场」要回退到这里。
+    phase_start_rounds: int = 0
+    dead_avatars: int = 0
+    # 当前阶段实际发出的 battle id（客户端可能回一个更早的 id，见 battle_info）。
+    battle_id: int = 0
+    battle_ids: set[int] = field(default_factory=set)
     stage_id: int = 0
     monster_entity_id: int = 0
-    battle_id: int = 0
-    # Every battle id handed to the client for this attempt.  The client settles
-    # the id it acted on, which is not always the newest one (see ``battle_info``),
-    # so the result handler must accept any id from this set.
-    battle_ids: set[int] = field(default_factory=set)
-    # 1 = 上半/第一节点, 2 = 下半/第二节点 (only when the config has a node2).
-    stage: int = 1
     # Scene to return to on LeaveChallenge (the lobby the player came from).
     return_plane_id: int = 0
     return_floor_id: int = 0
     return_entry_id: int = 0
 
+    # ------------------------------------------------------------- properties
+    @property
+    def current(self) -> Phase:
+        return self.phases[min(self.index, len(self.phases) - 1)]
 
-def enter(
-    session,
-    challenge_id: int,
-    *,
-    second: bool = False,
-    buff_ids: list[int] | None = None,
-    avatars: list[int] | None = None,
-    first_avatars: list[int] | None = None,
-    second_avatars: list[int] | None = None,
-) -> tuple[ChallengeState, pb.SceneInfo]:
-    """Resolve a challenge and switch the session into its scene.
+    @property
+    def last(self) -> Phase:
+        return self.phases[-1]
 
-    Returns ``(state, scene)``; ``scene`` is what ``StartChallengeScRsp.scene``
-    will carry in S4.  Raises ``ValueError`` for an unknown challenge id.
+    @property
+    def has_next(self) -> bool:
+        return self.index + 1 < len(self.phases)
 
-    ``first_avatars``/``second_avatars`` are both lineups the client configured
-    in the pre-battle 队伍配置 界面; ``avatars`` is the team of the node being
-    entered (kept for callers that only pass one).
-    """
-    runtime = session.runtime
-    challenge = runtime.endgame.challenge(challenge_id)
-    if challenge is None:
-        raise ValueError(f"unknown challenge id {challenge_id}")
-    node = challenge.node(second)
-    chosen = [int(avatar_id) for avatar_id in (avatars or []) if avatar_id]
-    first = [int(a) for a in (first_avatars or []) if a] or ([] if second else list(chosen))
-    second_list = [int(a) for a in (second_avatars or []) if a] or (list(chosen) if second else [])
-    if not chosen:
-        chosen = second_list if second else first
-    previous = (session.scene.plane_id, session.scene.floor_id, session.scene.entry_id)
-    scene, monster_entity_id = scene_service.build_challenge_scene(
-        session,
-        plane_id=node.plane_id,
-        floor_id=node.floor_id,
-        entry_id=node.entrance_id,
-        world_id=node.world_id,
-        group_id=node.maze_group_id,
-        monster_id=node.monster_id,
-        stage_id=node.stage_id,
-        avatars=chosen or None,
-    )
-    state = ChallengeState(
-        challenge_id=challenge.id,
-        mode=challenge.mode,
-        node=node,
-        second=second,
-        buff_ids=list(
-            buff_ids
-            if buff_ids is not None
-            else ([challenge.buff_id] if challenge.buff_id else [])
-        ),
-        avatars=chosen,
-        first_avatars=first,
-        second_avatars=second_list,
-        stage_id=node.stage_id,
-        monster_entity_id=monster_entity_id,
-        return_plane_id=int(previous[0]),
-        return_floor_id=int(previous[1]),
-        return_entry_id=int(previous[2]),
-    )
-    session.challenge = state
-    runtime.logger.info(
-        "challenge entered: id=%d mode=%s scene=%d/%d entry=%d stage=%d monster=%d"
-        " first=%s second=%s",
-        state.challenge_id,
-        state.mode,
-        node.plane_id,
-        node.floor_id,
-        node.entrance_id,
-        state.stage_id,
-        state.monster_entity_id,
-        first,
-        second_list,
-    )
-    return state, scene
+    @property
+    def node(self) -> ChallengeNode:
+        return self.current.node
 
+    @property
+    def avatars(self) -> list[int]:
+        return list(self.current.team)
+
+    @property
+    def first_avatars(self) -> list[int]:
+        return list(self.phases[0].team) if self.phases else []
+
+    @property
+    def second_avatars(self) -> list[int]:
+        return list(self.phases[1].team) if len(self.phases) > 1 else []
+
+    @property
+    def stage(self) -> int:
+        """1-based phase number (上半 = 1) — kept for older callers/tests."""
+        return self.index + 1
+
+    @property
+    def second(self) -> bool:
+        return self.index > 0
+
+    @property
+    def stage_index(self) -> int:
+        """4.7 星启模式节点号（0-based）— alias of :attr:`index`."""
+        return self.index
+
+    @property
+    def tierce(self) -> bool:
+        return len(self.phases) > 2
+
+    @property
+    def tierce_nodes(self) -> list[ChallengeNode]:
+        return [phase.node for phase in self.phases]
+
+    @property
+    def tierce_teams(self) -> list[list[int]]:
+        return [list(phase.team) for phase in self.phases]
+
+    @property
+    def lineup_type(self) -> int:
+        return self.current.lineup_type
+
+
+# ------------------------------------------------------------------ discovery
+def _team(ids) -> list[int]:
+    return [int(avatar_id) for avatar_id in (ids or []) if avatar_id]
+
+
+def _rounds_for(mode: str, countdown: int) -> int:
+    if countdown > 0:
+        return int(countdown)
+    return 4 if mode == PF else DEFAULT_ROUNDS
+
+
+def _phases(challenge, first: list[int], second: list[int]) -> list[Phase]:
+    """Build the phase list of one challenge row (node1 and, if any, node2)."""
+    team1 = _team(first)
+    team2 = _team(second) or team1
+    phases = [Phase(0, challenge.node1, team1, PHASE_LINEUP_TYPES[0])]
+    if challenge.node2 is not None:
+        phases.append(Phase(1, challenge.node2, team2, PHASE_LINEUP_TYPES[1]))
+    return phases
 
 
 def tierce_nodes(session, challenge_id: int) -> list[ChallengeNode] | None:
@@ -180,7 +247,6 @@ def tierce_nodes(session, challenge_id: int) -> list[ChallengeNode] | None:
         challenge = data.challenge(challenge_id)
         if challenge is None:
             return None
-        # 普通两层挑战被星启协议点开：按 node1/node2 合成三节点。
         second = challenge.node2 or challenge.node1
         return [challenge.node1, second, second]
     third = ChallengeNode(
@@ -205,6 +271,114 @@ def tierce_nodes(session, challenge_id: int) -> list[ChallengeNode] | None:
     return nodes[:3]
 
 
+def _tierce_phases(session, challenge_id: int, teams: list[list[int]]) -> list[Phase]:
+    nodes = tierce_nodes(session, challenge_id) or []
+    phases: list[Phase] = []
+    fallback = teams[0] if teams else []
+    for index, node in enumerate(nodes[:3]):
+        team = _team(teams[index]) if index < len(teams) else list(fallback)
+        phases.append(
+            Phase(index, node, team or list(fallback), PHASE_LINEUP_TYPES[min(index, 2)])
+        )
+    return phases
+
+
+# --------------------------------------------------------------------- enter
+def _remember_return(session, state: ChallengeState) -> None:
+    state.return_plane_id = int(session.scene.plane_id)
+    state.return_floor_id = int(session.scene.floor_id)
+    state.return_entry_id = int(session.scene.entry_id)
+
+
+def _apply_phase_scene(session, state: ChallengeState) -> pb.SceneInfo:
+    """Build the ``SceneInfo`` of the current phase and switch the session to it."""
+    phase = state.current
+    scene, monster_entity_id = scene_service.build_challenge_scene(
+        session,
+        plane_id=phase.node.plane_id,
+        floor_id=phase.node.floor_id,
+        entry_id=phase.node.entrance_id,
+        world_id=phase.node.world_id,
+        group_id=phase.node.maze_group_id,
+        monster_id=phase.node.monster_id,
+        stage_id=phase.stage_id,
+        avatars=phase.team or None,
+    )
+    state.stage_id = phase.stage_id
+    state.monster_entity_id = monster_entity_id
+    state.battle_id = 0
+    state.battle_ids.clear()
+    session.battle_info = None
+    # 进入某个阶段时的轮次预算（跨半场共用；重打本半场回退到这里）。
+    state.phase_start_rounds = int(state.rounds_left)
+    return scene
+
+
+def enter(
+    session,
+    challenge_id: int,
+    *,
+    second: bool = False,
+    buff_ids: list[int] | None = None,
+    avatars: list[int] | None = None,
+    first_avatars: list[int] | None = None,
+    second_avatars: list[int] | None = None,
+) -> tuple[ChallengeState, pb.SceneInfo]:
+    """Resolve a challenge and switch the session into its scene.
+
+    Returns ``(state, scene)``; ``scene`` is what ``StartChallengeScRsp.scene``
+    carries.  Raises ``ValueError`` for an unknown challenge id.
+
+    ``first_avatars``/``second_avatars`` are the two teams the client configured
+    in the pre-battle 队伍配置 界面 (``avatar_lineup_first/second``); ``second``
+    starts the run directly on the 下半 phase (pearl-sr flow).
+    """
+    runtime = session.runtime
+    challenge = runtime.endgame.challenge(challenge_id)
+    if challenge is None:
+        raise ValueError(f"unknown challenge id {challenge_id}")
+    chosen = _team(avatars)
+    first = _team(first_avatars) or ([] if second else list(chosen))
+    second_list = _team(second_avatars) or (list(chosen) if second else [])
+    if not chosen:
+        chosen = second_list if second else first
+    if not first and not second_list:
+        first = list(chosen)
+
+    phases = _phases(challenge, first, second_list)
+    state = ChallengeState(
+        challenge_id=challenge.id,
+        mode=challenge.mode,
+        phases=phases,
+        index=1 if (second and len(phases) > 1) else 0,
+        buff_ids=list(
+            buff_ids
+            if buff_ids is not None
+            else ([challenge.buff_id] if challenge.buff_id else [])
+        ),
+        rounds_left=_rounds_for(challenge.mode, challenge.countdown),
+    )
+    state.phase_start_rounds = int(state.rounds_left)
+    _remember_return(session, state)
+    session.challenge = state
+    scene = _apply_phase_scene(session, state)
+    runtime.logger.info(
+        "challenge entered: id=%d mode=%s phase=%d/%d scene=%d/%d entry=%d"
+        " stage=%d monster=%d teams=%s",
+        state.challenge_id,
+        state.mode,
+        state.index + 1,
+        len(phases),
+        state.node.plane_id,
+        state.node.floor_id,
+        state.node.entrance_id,
+        state.stage_id,
+        state.monster_entity_id,
+        [phase.team for phase in phases],
+    )
+    return state, scene
+
+
 def enter_tierce(
     session,
     challenge_id: int,
@@ -220,14 +394,13 @@ def enter_tierce(
     ``cur_tierce_challenge``。节点数据见 :func:`tierce_nodes`。
     """
     runtime = session.runtime
-    nodes = tierce_nodes(session, challenge_id)
-    if not nodes:
-        raise ValueError(f"unknown challenge id {challenge_id}")
-    index = max(int(stage_index), 0)
-    pick = min(index, len(nodes) - 1)
-    node = nodes[pick]
     challenge = runtime.endgame.challenge(challenge_id)
     stage = runtime.endgame.tierce_stage(challenge_id)
+    if challenge is None and stage is None:
+        raise ValueError(f"unknown challenge id {challenge_id}")
+    phases = _tierce_phases(session, challenge_id, [list(team) for team in (teams or [])])
+    if not phases:
+        raise ValueError(f"unknown challenge id {challenge_id}")
     mode = challenge.mode if challenge is not None else MOC
     buff = 0
     if challenge is not None:
@@ -235,58 +408,73 @@ def enter_tierce(
     elif stage is not None and stage.pre_challenge_id:
         pre = runtime.endgame.challenge(stage.pre_challenge_id)
         buff = pre.buff_id if pre is not None else 0
-    teams = [[int(avatar_id) for avatar_id in team if avatar_id] for team in (teams or [])]
-    team_pick = 0 if not teams else min(index, len(teams) - 1)
-    team = teams[team_pick] if teams else []
-    previous = (session.scene.plane_id, session.scene.floor_id, session.scene.entry_id)
-    scene, monster_entity_id = scene_service.build_challenge_scene(
-        session,
-        plane_id=node.plane_id,
-        floor_id=node.floor_id,
-        entry_id=node.entrance_id,
-        world_id=node.world_id,
-        group_id=node.maze_group_id,
-        monster_id=node.monster_id,
-        stage_id=node.stage_id,
-        avatars=team or None,
-    )
     state = ChallengeState(
-        challenge_id=challenge_id,
+        challenge_id=int(challenge_id),
         mode=mode,
-        node=node,
-        second=index >= 1,
-        tierce=True,
-        stage_index=index,
-        tierce_teams=teams,
-        tierce_nodes=nodes,
+        phases=phases,
+        index=min(max(int(stage_index), 0), len(phases) - 1),
         buff_ids=list(buff_ids if buff_ids is not None else ([buff] if buff else [])),
-        avatars=team,
-        first_avatars=list(teams[0]) if teams else [],
-        second_avatars=(
-            list(teams[1]) if len(teams) > 1 else (list(teams[0]) if teams else [])
-        ),
-        stage_id=node.stage_id,
-        monster_entity_id=monster_entity_id,
-        return_plane_id=int(previous[0]),
-        return_floor_id=int(previous[1]),
-        return_entry_id=int(previous[2]),
+        rounds_left=DEFAULT_ROUNDS,
     )
+    state.phase_start_rounds = int(state.rounds_left)
+    _remember_return(session, state)
     session.challenge = state
+    scene = _apply_phase_scene(session, state)
     runtime.logger.info(
         "challenge tierce entered: id=%d mode=%s stage_index=%d/%d teams=%s"
         " scene=%d/%d entry=%d stage=%d monster=%d",
         state.challenge_id,
         state.mode,
-        state.stage_index,
-        len(nodes),
-        teams,
-        node.plane_id,
-        node.floor_id,
-        node.entrance_id,
+        state.index,
+        len(phases),
+        [phase.team for phase in phases],
+        state.node.plane_id,
+        state.node.floor_id,
+        state.node.entrance_id,
         state.stage_id,
         state.monster_entity_id,
     )
     return state, scene
+
+
+def start_direct(session, challenge_id: int) -> pb.SceneInfo | None:
+    """Start a challenge without the 忘却之庭 lobby (debug / 模拟器入口).
+
+    Mirrors pearl-sr's custom stage selection: the server is told the challenge
+    id (``GET /debug/challenge?id=...``) and pushes the arena scene to the
+    client.  Needed because the lobby floor hard-locks the 4.6.54 beta client
+    (``MapNPC:* -400001`` has no ``ConfigEntityPath``).
+    """
+    challenge = session.runtime.endgame.challenge(challenge_id)
+    tierce_stage = session.runtime.endgame.tierce_stage(challenge_id)
+    if challenge is None and tierce_stage is None:
+        return None
+    team = [slot for slot in session.lineup.slots if slot]
+    if challenge is None:
+        state, scene = enter_tierce(session, challenge_id, stage_index=0, teams=[team])
+        state.direct = True
+        session.runtime.logger.info(
+            "challenge direct start (tierce): id=%d stage=%d team=%s",
+            challenge_id,
+            state.stage_id,
+            team,
+        )
+        return scene
+    state, scene = enter(
+        session,
+        challenge.id,
+        avatars=team,
+        first_avatars=team,
+    )
+    state.direct = True
+    session.runtime.logger.info(
+        "challenge direct start: id=%d (%s) stage=%d team=%s",
+        challenge.id,
+        challenge.mode,
+        state.stage_id,
+        team,
+    )
+    return scene
 
 
 def clear(session) -> None:
@@ -295,48 +483,35 @@ def clear(session) -> None:
     session.battle_info = None
 
 
-def lineup_info(
-    session, second: bool | None = None, *, index: int | None = None
-) -> pb.LineupInfo:
-    """Challenge ``LineupInfo`` (extra_lineup_type=Challenge/Challenge2).
+# ------------------------------------------------------------------- lineups
+def lineup_info(session, second: bool | None = None, *, index: int | None = None) -> pb.LineupInfo:
+    """Challenge ``LineupInfo`` for one phase (``extra_lineup_type`` = phase slot).
 
-    ``second`` picks the 下半 team (``state.second_avatars``); default follows the
-    half currently being played.  Falls back to the open-world lineup when the
-    client sent no ids.
+    ``index`` picks the phase explicitly; ``second`` is kept for older callers.
+    Reference shape: extra lineups carry ``extra_lineup_type`` and ``index = 0``.
     """
-    state = session.challenge
+    state = getattr(session, "challenge", None)
     runtime = session.runtime
     roster = runtime.roster
-    tierce = bool(state is not None and state.tierce and state.tierce_teams)
-    if tierce:
-        pick = state.stage_index if index is None else index
-        pick = min(max(int(pick), 0), len(state.tierce_teams) - 1)
-        if second is None:
-            second = pick >= 1
-    if second is None:
-        second = bool(state is not None and state.second)
-    avatars: list[int] = []
-    if tierce:
-        avatars = list(state.tierce_teams[pick])
+    if state is not None:
+        if index is None:
+            index = state.index if second is None else (1 if second else 0)
+        index = min(max(int(index), 0), len(state.phases) - 1)
+        phase = state.phases[index]
+        avatars = list(phase.team)
+        extra_lineup_type = phase.lineup_type
         if not avatars:
-            avatars = list(state.avatars)
-    elif state is not None:
-        avatars = list(state.second_avatars if second else state.first_avatars)
-        if not avatars:
-            avatars = list(state.avatars)
-    if not avatars:
+            avatars = [slot for slot in session.lineup.slots if slot]
+    else:
         avatars = [slot for slot in session.lineup.slots if slot]
-    extra_lineup_type = (
-        pb.ExtraLineupType.ExtraLineupType_LineupChallenge2
-        if second
-        else pb.ExtraLineupType.ExtraLineupType_LineupChallenge
-    )
+        extra_lineup_type = (
+            pb.ExtraLineupType.ExtraLineupType_LineupChallenge2
+            if second
+            else pb.ExtraLineupType.ExtraLineupType_LineupChallenge
+        )
     lineup = pb.LineupInfo(
         name="",
-        # DanhengServer/`LineupManager.GetExtraLineup` key extra lineups at
-        # ``type + 10`` (Challenge=11, Challenge2=13); index 0 for both made the
-        # client treat the two teams as the same lineup.
-        index=int(extra_lineup_type) + 10,
+        index=0,
         leader_slot=0,
         plane_id=0,
         is_virtual=False,
@@ -367,31 +542,30 @@ def lineup_info(
 
 
 def lineups(session) -> list[pb.LineupInfo]:
-    """Lineup list for Start/GetCur responses.
+    """All phase lineups for ``StartChallenge``/``GetCurChallenge`` responses.
 
-    ``StageNum >= 2`` carries **both** teams: DanhengServer and LunarCore do the
-    same for the same field, and with only the current team the client has no
-    avatars to render the other half — the 4.6.54 symptom is a black battle
-    screen that still simulates and settles by itself.
+    ``StageNum >= 2`` carries **both** teams (DanhengServer/HyacineCore and
+    LunarCore do the same): with only the current team the client has nothing to
+    render the other half with.
     """
     state = getattr(session, "challenge", None)
-    first = lineup_info(session, second=False)
     if state is None:
-        return [first]
-    if state.tierce and state.tierce_teams:
-        # 星启模式：三套队伍一起下发，客户端按节点渲染编队。
-        return [lineup_info(session, index=index) for index in range(len(state.tierce_teams))]
-    challenge = session.runtime.endgame.challenge(state.challenge_id)
-    if challenge is None or challenge.node2 is None:
-        return [first]
-    return [first, lineup_info(session, second=True)]
+        return [lineup_info(session)]
+    return [lineup_info(session, index=index) for index in range(len(state.phases))]
 
 
-def cur_challenge(session, *, finished: bool | None = None) -> pb.CurChallenge:
-    """``CurChallenge`` for Start/GetCur/Settle responses.
+def normal_lineup_notify(session) -> pb.SyncLineupNotify:
+    """``SyncLineupNotify`` for the open-world (non-extra) lineup.
 
-    ``finished`` overrides the status (settle: True=finish / False=failed).
+    Sent when a challenge ends so the client stops using ``LineupChallenge``/
+    ``LineupChallenge2`` for the next open-world fight.
     """
+    return pb.SyncLineupNotify(lineup=lineup_service.build_lineup(session))
+
+
+# --------------------------------------------------------------- cur challenge
+def cur_challenge(session, *, finished: bool | None = None) -> pb.CurChallenge:
+    """``CurChallenge`` for Start/GetCur/Settle responses."""
     state = session.challenge
     if finished is None:
         status = pb.ChallengeStatus.CHALLENGE_DOING
@@ -401,13 +575,19 @@ def cur_challenge(session, *, finished: bool | None = None) -> pb.CurChallenge:
             if finished
             else pb.ChallengeStatus.CHALLENGE_FAILED
         )
-    lineup = lineup_info(session)
+    countdown = _rounds_for(state.mode, 0)
+    if state.phases:
+        challenge = session.runtime.endgame.challenge(state.challenge_id)
+        if challenge is not None:
+            countdown = _rounds_for(state.mode, challenge.countdown)
     cur = pb.CurChallenge(
         challenge_id=state.challenge_id,
         status=status,
-        extra_lineup_type=lineup.extra_lineup_type,
+        extra_lineup_type=state.lineup_type,
         score_id=PF_SCORE_ID if state.mode == PF else 0,
         score_two=0,
+        round_count=max(0, countdown - int(state.rounds_left)),
+        dead_avatar_num=int(state.dead_avatars),
     )
     if state.mode == PF:
         cur.stage_info.cur_story_buffs.CopyFrom(
@@ -432,7 +612,11 @@ def settle_notify(session, *, win: bool, stars: int = 3) -> pb.ChallengeSettleNo
     values: 3 stars on a win, 0 on a loss; no reward items.
     """
     state = session.challenge
-    return pb.ChallengeSettleNotify(
+    challenge = session.runtime.endgame.challenge(state.challenge_id)
+    # ``floor`` 是「第几层」（ChallengeMazeConfig.Floor，只有轮换组才有）；
+    # 常驻组（100/900）没有这一列，就不发 max_level，别拿 floor_id 顶上。
+    floor = int(getattr(challenge, "floor", 0) or 0) if challenge is not None else 0
+    notify = pb.ChallengeSettleNotify(
         challenge_id=state.challenge_id,
         is_win=win,
         star=max(0, int(stars)) if win else 0,
@@ -440,312 +624,191 @@ def settle_notify(session, *, win: bool, stars: int = 3) -> pb.ChallengeSettleNo
         score_two=0,
         cur_challenge=cur_challenge(session, finished=win),
     )
+    if floor:
+        notify.max_level.CopyFrom(
+            pb.ChallengeHistoryMaxLevel(level=floor, reward_display_type=101212)
+        )
+    return notify
 
 
+# ----------------------------------------------------------------- transitions
 def can_advance(session) -> bool:
-    """True when the attempt is still on 上半 and the config has a 下半.
+    """True when the attempt still has an unplayed phase."""
+    state = getattr(session, "challenge", None)
+    return bool(state is not None and state.has_next)
 
-    MOC/PF/AS rows with ``StageNum=2`` carry a second node (its own entrance,
-    maze group, monster and stage); clearing 上半 must load that node instead of
-    settling the run, otherwise the client shows the first-half result and then
-    throws the player out (guide/03 §3.26).
+
+def _advance_inplace(session, state: ChallengeState, phase: Phase) -> Transition:
+    """Reference phase switch: lineups + avatars (before ack) + groups (after)."""
+    previous = state.current
+    old_entities = [
+        entity
+        for group in session.scene.extra_groups
+        for entity in group.entity_list
+    ]
+    new_entities, monster_entity_id = scene_service.challenge_group_entities(
+        session,
+        plane_id=phase.node.plane_id,
+        group_id=phase.node.maze_group_id,
+        monster_id=phase.node.monster_id,
+        stage_id=phase.stage_id,
+        entry_id=phase.node.entrance_id,
+        # 换实体 id 段：旧组刚删掉的 id 不重复用（legacy 刷新路径对此敏感）。
+        base=scene_service.CHALLENGE_ENTITY_BASE + 10 * phase.index,
+    )
+    before: list = [pb.ChallengeLineupNotify(extra_lineup_type=phase.lineup_type)]
+    avatars = scene_service.avatar_refresh_notify(
+        session,
+        old_avatars=previous.team,
+        new_avatars=phase.team,
+    )
+    if avatars is not None:
+        before.append(avatars)
+    after: list = []
+    if previous.node.maze_group_id != phase.node.maze_group_id:
+        after.append(
+            scene_service.unload_group_notify(
+                session, previous.node.maze_group_id, old_entities
+            )
+        )
+        after.append(
+            scene_service.load_group_notify(
+                session, phase.node.maze_group_id, new_entities
+            )
+        )
+        session.scene.extra_groups = [
+            pb.SceneEntityGroupInfo(
+                group_id=int(phase.node.maze_group_id),
+                state=1,
+                entity_list=new_entities,
+            )
+        ]
+    state.monster_entity_id = monster_entity_id
+    # GetCurSceneInfo / 场景重建要按新队伍装配场上角色，否则会把上一队发回来。
+    session.scene.team = list(phase.team)
+    return Transition(before=before, after=after)
+
+
+def advance(session, *, mode: str | None = None) -> Transition:
+    """Switch the attempt to its next phase; returns the packets to send.
+
+    ``mode`` defaults to ``[endgame] advance``.  ``client`` returns an empty
+    transition and changes nothing: the client is expected to re-send
+    ``StartChallenge`` (handled by :func:`enter_second_half`).
     """
     state = getattr(session, "challenge", None)
-    if state is None:
-        return False
-    if state.tierce:
-        # 星启模式：三个节点，最后一个节点打完才结算。
-        return state.stage_index + 1 < max(len(state.tierce_nodes), 2)
-    if state.second:
-        return False
-    challenge = session.runtime.endgame.challenge(state.challenge_id)
-    return challenge is not None and challenge.node2 is not None
+    if state is None or not state.has_next:
+        return Transition()
+    mode = (mode or session.runtime.cfg.endgame.advance or "inplace").lower()
+    if mode in ("client", "none"):
+        session.runtime.logger.info(
+            "challenge advance: waiting for client (advance=%s)", mode
+        )
+        return Transition()
 
+    phase = state.phases[state.index + 1]
+    same_scene = (
+        int(phase.node.plane_id) == int(session.scene.plane_id)
+        and int(phase.node.floor_id) == int(session.scene.floor_id)
+        and int(phase.node.entrance_id) == int(session.scene.entry_id)
+    )
+    if mode == "scene" or not same_scene:
+        # 重建 SceneInfo 的老路：客户端重进 arena。保留做 A/B 与「换层」兜底。
+        # 阵容切换先发（客户端还在战斗态就会处理），场景包放在结果之后。
+        state.index = phase.index
+        scene = _apply_phase_scene(session, state)
+        before = [pb.ChallengeLineupNotify(extra_lineup_type=phase.lineup_type)]
+        after = [
+            pb.SyncLineupNotify(lineup=lineup_info(session)),
+            pb.EnterSceneByServerScNotify(
+                reason=pb.EnterSceneReason.Value("ENTER_SCENE_REASON_NONE"),
+                lineup=lineup_info(session),
+                scene=scene,
+            ),
+        ]
+        session.runtime.logger.info(
+            "challenge advance (scene): id=%d phase=%d scene=%d/%d entry=%d"
+            " stage=%d team=%s",
+            state.challenge_id,
+            phase.index + 1,
+            phase.node.plane_id,
+            phase.node.floor_id,
+            phase.node.entrance_id,
+            phase.stage_id,
+            phase.team,
+        )
+        return Transition(before=before, after=after, new_scene=True)
 
-def advance_tierce(session) -> pb.SceneInfo:
-    """星启模式进下一个节点：重建该节点的 ``SceneInfo``。
-
-    客户端对 ``StartChallengeTierce`` 只回一次场景，节点之间和我们的
-    ``advance = "scene"`` 一样靠 ``EnterSceneByServerScNotify`` 推。
-    """
-    state = session.challenge
-    nodes = list(state.tierce_nodes) or tierce_nodes(session, state.challenge_id) or []
-    next_index = int(state.stage_index) + 1
-    pick = min(next_index, len(nodes) - 1) if nodes else 0
-    node = nodes[pick] if nodes else state.node
-    team_pick = (
-        min(next_index, len(state.tierce_teams) - 1) if state.tierce_teams else 0
-    )
-    team = (
-        list(state.tierce_teams[team_pick]) if state.tierce_teams else list(state.avatars)
-    )
-    scene, monster_entity_id = scene_service.build_challenge_scene(
-        session,
-        plane_id=node.plane_id,
-        floor_id=node.floor_id,
-        entry_id=node.entrance_id,
-        world_id=node.world_id,
-        group_id=node.maze_group_id,
-        monster_id=node.monster_id,
-        stage_id=node.stage_id,
-        avatars=team or None,
-    )
-    state.node = node
-    state.stage_index = next_index
-    state.stage = next_index + 1
-    state.second = next_index >= 1
-    state.stage_id = node.stage_id
-    state.monster_entity_id = monster_entity_id
-    state.avatars = team
+    transition = _advance_inplace(session, state, phase)
+    state.index = phase.index
+    # 新一场战斗：清掉上一阶段的 battle id，否则迟到的结果会被当成有效结果。
     state.battle_id = 0
     state.battle_ids.clear()
+    state.stage_id = phase.stage_id
     session.battle_info = None
+    # 新半场的轮次预算 = 此刻剩余（跨半场共用）；重打本半场时回退到这里。
+    state.phase_start_rounds = int(state.rounds_left)
     session.runtime.logger.info(
-        "challenge tierce advance: id=%d stage_index=%d scene=%d/%d entry=%d"
-        " stage=%d team=%s",
+        "challenge advance (inplace): id=%d phase=%d->%d group=%d stage=%d team=%s",
         state.challenge_id,
-        state.stage_index,
-        node.plane_id,
-        node.floor_id,
-        node.entrance_id,
-        state.stage_id,
-        team,
+        state.index,
+        phase.index + 1,
+        phase.node.maze_group_id,
+        phase.stage_id,
+        phase.team,
     )
-    return scene
-
-
-def advance_tierce_refresh(
-    session,
-) -> tuple[pb.SceneGroupRefreshScNotify, pb.LineupInfo]:
-    """星启模式**原地**换到下一个节点（DanhengServer 风格，探针）。
-
-    4.7.0 真机 21:35：节点一胜利后服务端重建 ``SceneInfo`` 进节点二，客户端
-    "场景不对" + 战斗黑屏，和 4.6.54 下半一模一样。这条路径只卸旧组、装新组，
-    不重建场景（4.6.54 的 ``_RefreshGroup_Legacy`` 会 NRE，4.7.0 未验证）。
-    """
-    state = session.challenge
-    nodes = list(state.tierce_nodes) or tierce_nodes(session, state.challenge_id) or []
-    next_index = int(state.stage_index) + 1
-    pick = min(next_index, len(nodes) - 1) if nodes else 0
-    node = nodes[pick] if nodes else state.node
-    team_pick = min(next_index, len(state.tierce_teams) - 1) if state.tierce_teams else 0
-    team = (
-        list(state.tierce_teams[team_pick]) if state.tierce_teams else list(state.avatars)
-    )
-    # 实体 id 段跟着节点走（1000 + 10*stage），避免和上一节点的 id 撞。
-    state.stage = next_index + 1
-    notify, monster_entity_id = scene_service.swap_challenge_group(
-        session,
-        group_id=node.maze_group_id,
-        monster_id=node.monster_id,
-        stage_id=node.stage_id,
-    )
-    state.node = node
-    state.stage_index = next_index
-    state.second = next_index >= 1
-    state.stage_id = node.stage_id
-    state.monster_entity_id = monster_entity_id
-    state.avatars = team
-    state.battle_id = 0
-    state.battle_ids.clear()
-    session.battle_info = None
-    session.runtime.logger.info(
-        "challenge tierce advance (refresh): id=%d stage_index=%d group=%d"
-        " stage=%d team=%s",
-        state.challenge_id,
-        state.stage_index,
-        node.maze_group_id,
-        node.stage_id,
-        team,
-    )
-    return notify, lineup_info(session)
-
-
-def advance_scene(session) -> pb.SceneInfo:
-    """Rebuild the arena as node2 and return the new ``SceneInfo`` (scene mode).
-
-    Used when ``[endgame] advance = "scene"``: the client is told to re-enter the
-    challenge scene, which is what LunarCore does (``EnterSceneByServerScNotify``)
-    and what our 4.6.54 runs do accept (the player can attack the 下半 monster).
-    """
-    state = session.challenge
-    challenge = session.runtime.endgame.challenge(state.challenge_id)
-    node = challenge.node2
-    team = list(state.second_avatars) or list(state.avatars)
-    scene, monster_entity_id = scene_service.build_challenge_scene(
-        session,
-        plane_id=node.plane_id,
-        floor_id=node.floor_id,
-        entry_id=node.entrance_id,
-        world_id=node.world_id,
-        group_id=node.maze_group_id,
-        monster_id=node.monster_id,
-        stage_id=node.stage_id,
-        avatars=team or None,
-    )
-    state.node = node
-    state.stage_id = node.stage_id
-    state.monster_entity_id = monster_entity_id
-    state.second = True
-    state.stage = 2
-    state.avatars = team
-    state.battle_id = 0
-    state.battle_ids.clear()
-    session.battle_info = None
-    session.runtime.logger.info(
-        "challenge advance (scene): id=%d mode=%s scene=%d/%d entry=%d stage=%d team=%s",
-        state.challenge_id,
-        state.mode,
-        node.plane_id,
-        node.floor_id,
-        node.entrance_id,
-        node.stage_id,
-        team,
-    )
-    return scene
-
-
-def advance_stage(session) -> tuple[pb.SceneGroupRefreshScNotify, pb.LineupInfo]:
-    """Switch the active attempt to 下半 (node2) **in place**.
-
-    Mirrors DanhengServer ``ChallengeMemoryInstance.AdvanceStage`` and LunarCore
-    ``ChallengeInstance.advanceStage``: unload ``MazeGroupID1``, load
-    ``MazeGroupID2`` in the same scene, move the lineup to ``LineupChallenge2``.
-    Returns ``(scene_group_refresh, lineup)`` for the handler to send.
-
-    Why not rebuild a ``SceneInfo``: the client is already inside the arena and
-    keeps its battle-area binding; handing it a fresh scene (new entry/entities)
-    is what produced the 4.6.54 下半黑屏 — the battle still simulates and then
-    settles itself.
-    """
-    state = session.challenge
-    challenge = session.runtime.endgame.challenge(state.challenge_id)
-    node = challenge.node2
-    # 下半是另一套队伍：优先用客户端在队伍配置里给的 second lineup。
-    team = list(state.second_avatars) or list(state.avatars)
-    notify, monster_entity_id = scene_service.swap_challenge_group(
-        session,
-        group_id=node.maze_group_id,
-        monster_id=node.monster_id,
-        stage_id=node.stage_id,
-    )
-    state.node = node
-    state.stage_id = node.stage_id
-    state.monster_entity_id = monster_entity_id
-    state.second = True
-    state.stage = 2
-    state.avatars = team
-    # 下半是新一场战斗：清掉上半的 battle id。留着会让迟到的上半结果
-    # 通过 ``req.battle_id in challenge.battle_ids`` 被当成有效结果而提前结算。
-    state.battle_id = 0
-    state.battle_ids.clear()
-    session.battle_info = None
-    session.runtime.logger.info(
-        "challenge advance: id=%d mode=%s -> stage=2 group=%d stage_id=%d team=%s",
-        state.challenge_id,
-        state.mode,
-        node.maze_group_id,
-        node.stage_id,
-        team,
-    )
-    return notify, lineup_info(session, second=True)
-
+    return transition
 
 
 def enter_second_half(session) -> pb.SceneInfo:
-    """Client-driven 下半: the client re-sent ``StartChallenge`` with only the
-    second lineup (pearl-sr flow) and expects a fresh ``SceneInfo``.
+    """Client-driven 下半: the client re-sent ``StartChallenge`` (pearl flow).
 
-    The server-driven auto-advance uses :func:`advance_stage` instead, which swaps
-    the maze group in place.
+    Only used when ``[endgame] advance = "client"``; returns the fresh
+    ``SceneInfo`` for the phase the client asked for.
     """
     state = session.challenge
-    challenge = session.runtime.endgame.challenge(state.challenge_id)
-    node = challenge.node2
-    team = list(state.second_avatars) or list(state.avatars)
-    scene, monster_entity_id = scene_service.build_challenge_scene(
-        session,
-        plane_id=node.plane_id,
-        floor_id=node.floor_id,
-        entry_id=node.entrance_id,
-        world_id=node.world_id,
-        group_id=node.maze_group_id,
-        monster_id=node.monster_id,
-        stage_id=node.stage_id,
-        avatars=team or None,
-    )
-    state.node = node
-    state.stage_id = node.stage_id
-    state.monster_entity_id = monster_entity_id
-    state.second = True
-    state.stage = 2
-    state.avatars = team
-    state.battle_id = 0
-    state.battle_ids.clear()
-    session.battle_info = None
+    if state.has_next:
+        state.index += 1
+    scene = _apply_phase_scene(session, state)
     session.runtime.logger.info(
-        "challenge enter second half: id=%d mode=%s scene=%d/%d entry=%d stage=%d team=%s",
+        "challenge enter second half: id=%d phase=%d group=%d stage=%d team=%s",
         state.challenge_id,
-        state.mode,
-        node.plane_id,
-        node.floor_id,
-        node.entrance_id,
-        node.stage_id,
-        team,
-    )
-    return scene
-
-
-def start_direct(session, challenge_id: int) -> pb.SceneInfo | None:
-    """Start a challenge without the 忘却之庭 lobby (debug / 模拟器入口).
-
-    Mirrors pearl-sr's custom stage selection: the server is told the challenge
-    id (``GET /debug/challenge?id=...``) and pushes the arena scene to the
-    client.  Needed because the 4.6.54 beta client hard-locks on a broken
-    map-NPC row (``MapNPC:* -400001`` has no ``ConfigEntityPath``) when it
-    loads the train-car lobby floor, which makes the lobby path unusable.
-    """
-    challenge = session.runtime.endgame.challenge(challenge_id)
-    tierce_stage = session.runtime.endgame.tierce_stage(challenge_id)
-    if challenge is None and tierce_stage is None:
-        return None
-    team = [slot for slot in session.lineup.slots if slot]
-    if challenge is None:
-        # 星启模式那一层（真机 id 5513 = 普通过关行 +1）：没有大厅也能直接进节点一。
-        state, scene = enter_tierce(
-            session,
-            challenge_id,
-            stage_index=0,
-            teams=[team],
-        )
-        state.direct = True
-        session.runtime.logger.info(
-            "challenge direct start (tierce): id=%d stage=%d team=%s",
-            challenge_id,
-            state.stage_id,
-            team,
-        )
-        return scene
-    state, scene = enter(
-        session,
-        challenge.id,
-        avatars=team,
-        first_avatars=team,
-    )
-    state.direct = True
-    session.runtime.logger.info(
-        "challenge direct start: id=%d (%s) stage=%d team=%s",
-        challenge.id,
-        challenge.mode,
+        state.index + 1,
+        state.node.maze_group_id,
         state.stage_id,
-        team,
+        state.current.team,
     )
     return scene
 
 
+def apply_result_stats(session, req) -> None:
+    """Fold one ``PVEBattleResultCsReq`` into round/death counters.
+
+    ``CurChallenge.round_count`` / ``dead_avatar_num`` feed both the HUD (剩余轮次)
+    and the settlement page; the old implementation never wrote them, so every
+    fight showed "剩余轮 30" and the star count was a constant.
+    """
+    state = getattr(session, "challenge", None)
+    if state is None:
+        return
+    stats = getattr(req, "stt", None)
+    if stats is None:
+        return
+    rounds = int(getattr(stats, "round_cnt", 0) or 0)
+    if rounds > 0:
+        state.rounds_left = max(0, int(state.rounds_left) - rounds)
+    for avatar in getattr(stats, "battle_avatar_list", []):
+        if int(getattr(avatar, "die_times", 0) or 0) > 0:
+            state.dead_avatars += 1
+
+
+# ------------------------------------------------------------------- battles
 def rounds_limit(mode: str) -> int:
-    """PF is a 4-round mode; MoC/AS use the standard 30."""
-    return 4 if mode == PF else 30
+    """Fallback round limit when the config row has no ``ChallengeCountDown``.
+
+    PF is a 4-round mode; MoC/AS use their own countdown (usually 30, 常驻回忆 40).
+    """
+    return 4 if mode == PF else DEFAULT_ROUNDS
 
 
 def target_info(mode: str, stage_id: int) -> dict[int, list[int]]:
@@ -792,11 +855,14 @@ def battle_info(session) -> pb.SceneBattleInfo:
         return info
 
     battle_id = runtime.battle.next_battle_id(session)
+    # 轮次预算跨半场共用（参考实现 `battle.RoundLimit = Data.Memory.RoundsLeft`）：
+    # 上半用掉的轮次不能在下半再给一遍，否则下半 HUD 的「剩余轮次」会跳回满值。
+    remaining = int(state.rounds_left or 0)
     info = pb.SceneBattleInfo(
         battle_id=battle_id,
         world_level=runtime.cfg.player.world_level,
         stage_id=state.stage_id,
-        rounds_limit=rounds_limit(state.mode),
+        rounds_limit=max(1, remaining) if remaining else rounds_limit(state.mode),
         logic_random_seed=secrets.randbits(32) or 123456789,
         # 字段 7 在 4.6.54 descriptor 里被混淆成 JAOIOKBBMFC，实为
         # monster_wave_length（对照 pearl-sr protocol.pb.zig:28008）。pearl 每次都填；
@@ -839,27 +905,16 @@ def battle_info(session) -> pb.SceneBattleInfo:
     state.battle_id = battle_id
     state.battle_ids.add(battle_id)
     session.battle_info = info
-    if state.second:
-        # 真机诊断：下半的 battle_info 与上半逐字段对照用（黑屏时先把这行贴出来）。
-        runtime.logger.info(
-            "challenge battle info (下半): stage=%d rounds=%d avatars=%s waves=%s",
-            state.stage_id,
-            info.rounds_limit,
-            [int(avatar.id) for avatar in info.battle_avatar_list],
-            [
-                [int(monster.monster_id) for monster in wave.monster_list]
-                for wave in info.monster_wave_list
-            ],
-        )
     runtime.logger.info(
-        "challenge battle info: id=%d challenge=%d mode=%s stage=%d waves=%d"
-        " avatars=%d buffs=%d rounds=%d",
+        "challenge battle info: id=%d challenge=%d mode=%s phase=%d stage=%d"
+        " waves=%d avatars=%s buffs=%d rounds=%d",
         battle_id,
         state.challenge_id,
         state.mode,
+        state.index + 1,
         state.stage_id,
         len(info.monster_wave_list),
-        len(info.battle_avatar_list),
+        [int(avatar.id) for avatar in info.battle_avatar_list],
         len(info.buff_list),
         info.rounds_limit,
     )

@@ -28,14 +28,14 @@ Python 写的本地单人《崩坏：星穹铁道》私服，目标客户端 **4
 | 秘技点 / 战前 HP / 标记物品 | ✅ |
 | 任务 / 教程 / 指南 / ServerPrefs | ✅ 全标记完成 |
 | Lua 控制台、freesr 网页热更新 | ✅ |
-| 混沌回忆（MOC） | ✅ 15 层闭环；🟡 下半战斗黑屏、忘却之庭缺「物竞天择」关卡组卡 |
+| 混沌回忆（MOC） | ✅ 15 层闭环；🔁 2026-11-11 深夜重写阶段切换（待真机）；🟡 忘却之庭缺「物竞天择」关卡组卡 |
 | 虚构叙事（PF）/ 末日幻影（AS） | 🟡 协议已实现，待真机 |
 | 历战余响 | 🟡 协议链 + 单测，入口待真机 |
 | 异相仲裁（Peak）/ Tierce | ⬜ 未实现，数据已就绪 |
 | 掉落 / 背包结算 | ⏸ 按决定不做 |
 | 地图「导航」UI | ⏸ 数据已下发，无法自动验证 |
 
-当前规模：**193 单测 / 74 handler**，`scripts\check.ps1` 全绿。
+当前规模：**221 单测 / 78 handler**，`scripts\check.ps1` 全绿。
 数字以 [docs/README §3](docs/README.md#3-关键数字唯一事实源) 为准。
 
 > **4.7.0 CN 已真机通过**：`versions/4.7.0.toml` + 本地 CDN 回放（`features.local_cdn`）+
@@ -72,7 +72,7 @@ Start-Process .\firefly-go-proxy.exe -ArgumentList '-e','E:\SiFu\HSRSiFu\StarRai
 ```powershell
 cd E:\LCXS\run\hsr-local
 
-# 全量回归：193 单测 + 离线 5 链路 + proto 检查 + ruff + 文档检查
+# 全量回归：221 单测 + 离线核心链 + 挑战上下半链 + proto 检查 + ruff + 文档检查
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\check.ps1
 
 # 真机测试：起服务端/代理/游戏、截图、出报告

@@ -158,6 +158,17 @@ async def on_get_challenge(
     return rsp
 
 
+def _monster_entity_id(scene: pb.SceneInfo, group_id: int) -> int:
+    """Entity id of the trigger NPC inside one arena group of a ``SceneInfo``."""
+    for group in scene.entity_group_list:
+        if int(group.group_id) != int(group_id):
+            continue
+        for entity in group.entity_list:
+            if entity.HasField("npc_monster"):
+                return int(entity.entity_id)
+    return 0
+
+
 def _group_lineup(session: Session) -> pb.ChallengeLineupList:
     """Previous-clear lineup shown in the challenge group panel."""
     runtime = session.runtime
@@ -269,18 +280,19 @@ async def on_start_challenge(
         and active is not None
         and active.challenge_id == challenge.id
         and active.stage == 1
+        and active.has_next
     ):
         # 客户端在"前往下半"里重发 StartChallengeCsReq，只带 avatar_lineup_second
         # （pearl-sr `onStartChallenge` 同样的分支）。这是同一局的第二阶段，不能
         # 当成新挑战清状态，否则会丢掉返回场景与上半进度。
-        active.second_avatars = [
+        active.phases[1].team = [
             runtime.roster.base_id(avatar_id) for avatar_id in second_ids if avatar_id
         ]
         scene = challenge_service.enter_second_half(session)
         runtime.logger.info(
             "start challenge (second half): id=%d team=%s",
             challenge.id,
-            active.second_avatars,
+            active.phases[1].team,
         )
         return pb.StartChallengeScRsp(
             retcode=0,
@@ -301,7 +313,6 @@ async def on_start_challenge(
         runtime.roster.base_id(avatar_id) for avatar_id in second_ids if avatar_id
     ]
 
-
     buff_ids = _request_buffs(challenge, req, second)
     # Starting a new challenge replaces any previous attempt/battle.
     challenge_service.clear(session)
@@ -315,17 +326,17 @@ async def on_start_challenge(
         second_avatars=second_avatars,
     )
     runtime.logger.info(
-        "start challenge: id=%d (%s) node=%d scene=%d/%d entry=%d stage=%d"
-        " first=%s second=%s buffs=%s",
+        "start challenge: id=%d (%s) phase=%d/%d scene=%d/%d entry=%d stage=%d"
+        " teams=%s buffs=%s",
         challenge.id,
         MODE_LABEL.get(challenge.mode, challenge.mode),
-        2 if second else 1,
+        state.index + 1,
+        len(state.phases),
         state.node.plane_id,
         state.node.floor_id,
         state.node.entrance_id,
         state.stage_id,
-        first_avatars or avatars,
-        second_avatars,
+        [phase.team for phase in state.phases],
         buff_ids,
     )
 
@@ -408,7 +419,11 @@ async def on_leave_challenge(
     active = getattr(session, "challenge", None)
     if active is not None:
         runtime.logger.info(
-            "leave challenge: id=%d mode=%s", active.challenge_id, active.mode
+            "leave challenge: id=%d mode=%s phase=%d/%d",
+            active.challenge_id,
+            active.mode,
+            active.index + 1,
+            len(active.phases),
         )
     target = None
     lobby_return = getattr(session, "lobby_return", None)
@@ -438,6 +453,15 @@ async def on_leave_challenge(
         session.scene = scene_service.SceneState.from_config(runtime.cfg.world)
         scene = scene_service.build_scene(session)
     lineup = lineup_service.build_lineup(session)
+    # 退出挑战必须把额外阵容关掉：参考实现（Hyacine 4.0 HandlerLeaveChallenge）
+    # 发 ChallengeLineupNotify(LineupNone) 再同步普通阵容。少了这一步，客户端
+    # 之后还以 LineupChallenge2 的身份开野外战斗，换队/开战会错乱。
+    await session.send(
+        pb.ChallengeLineupNotify(
+            extra_lineup_type=pb.ExtraLineupType.ExtraLineupType_LineupNone
+        )
+    )
+    await session.send(pb.SyncLineupNotify(lineup=lineup))
     await session.send(pb.QuitBattleScNotify())
     await session.send(
         pb.EnterSceneByServerScNotify(
@@ -447,6 +471,77 @@ async def on_leave_challenge(
         )
     )
     return pb.LeaveChallengeScRsp(retcode=0)
+
+
+async def on_enter_next_phase(
+    session: Session, req: pb.EnterChallengeNextPhaseCsReq
+) -> pb.EnterChallengeNextPhaseScRsp:
+    """Client-driven phase switch (``EnterChallengeNextPhaseCsReq``).
+
+    The message exists in the 4.6.54/4.7.0 table and the response carries a
+    ``SceneInfo``; 混沌回忆/虚构叙事 switch phases server-side (reference:
+    HyacineCore replies ``RetChallengeNotDoing``), so here we only re-send the
+    **current** phase's scene for clients that ask.  Never advances on its own:
+    a stray/stale request must not skip a half.
+    """
+    state = getattr(session, "challenge", None)
+    if state is None:
+        return pb.EnterChallengeNextPhaseScRsp(retcode=1)
+    scene = scene_service.build_challenge_scene(
+        session,
+        plane_id=state.node.plane_id,
+        floor_id=state.node.floor_id,
+        entry_id=state.node.entrance_id,
+        world_id=state.node.world_id,
+        group_id=state.node.maze_group_id,
+        monster_id=state.node.monster_id,
+        stage_id=state.stage_id,
+        avatars=state.avatars or None,
+    )[0]
+    session.runtime.logger.info(
+        "enter challenge next phase: id=%d phase=%d (re-sending current scene)",
+        state.challenge_id,
+        state.index + 1,
+    )
+    return pb.EnterChallengeNextPhaseScRsp(retcode=0, scene=scene)
+
+
+async def on_restart_challenge_phase(
+    session: Session, req: pb.RestartChallengePhaseCsReq
+) -> pb.RestartChallengePhaseScRsp:
+    """Restart the current phase (``RestartChallengePhaseCsReq``).
+
+    Used by the client's "重打本半场" button.  Rebuild the current phase scene
+    and drop the battle cache; the challenge itself keeps its progress.
+    """
+    state = getattr(session, "challenge", None)
+    if state is None:
+        return pb.RestartChallengePhaseScRsp(retcode=1)
+    state.battle_id = 0
+    state.battle_ids.clear()
+    session.battle_info = None
+    # 重打本半场：轮次预算回退到本半场开始时的值（参考实现“重打”语义）。
+    if state.phase_start_rounds:
+        state.rounds_left = int(state.phase_start_rounds)
+    scene = scene_service.build_challenge_scene(
+        session,
+        plane_id=state.node.plane_id,
+        floor_id=state.node.floor_id,
+        entry_id=state.node.entrance_id,
+        world_id=state.node.world_id,
+        group_id=state.node.maze_group_id,
+        monster_id=state.node.monster_id,
+        stage_id=state.stage_id,
+        avatars=state.avatars or None,
+    )[0]
+    state.monster_entity_id = _monster_entity_id(scene, state.node.maze_group_id)
+    session.runtime.logger.info(
+        "restart challenge phase: id=%d phase=%d group=%d",
+        state.challenge_id,
+        state.index + 1,
+        state.node.maze_group_id,
+    )
+    return pb.RestartChallengePhaseScRsp(retcode=0, scene=scene)
 
 
 async def on_take_cumulative_reward(
@@ -474,5 +569,7 @@ def register(router: Router) -> None:
     router.add("GetCurChallengeCsReq", on_get_cur_challenge)
     router.add("LeaveChallengeCsReq", on_leave_challenge)
     router.add("LeaveChallengeTierceCsReq", on_leave_challenge_tierce)
+    router.add("EnterChallengeNextPhaseCsReq", on_enter_next_phase)
+    router.add("RestartChallengePhaseCsReq", on_restart_challenge_phase)
     router.add("TakeChallengeCumulativeRewardCsReq", on_take_cumulative_reward)
 

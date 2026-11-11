@@ -136,9 +136,11 @@ class ChallengeHandlersTest(unittest.IsolatedAsyncioTestCase):
             second.extra_lineup_type,
             pb.ExtraLineupType.ExtraLineupType_LineupChallenge2,
         )
-        # extra lineups are keyed at type + 10 (DanhengServer LineupManager)
-        self.assertEqual(lineup.index, 11)
-        self.assertEqual(second.index, 13)
+        # extra lineup 的 proto ``index`` 恒为 0，阵容种类只由
+        # ``extra_lineup_type`` 区分（Danheng ``LineupInfo.ToProto`` 的写法；
+        # 旧实现写成 type+10 是把存储键当成了 proto 字段）。
+        self.assertEqual(lineup.index, 0)
+        self.assertEqual(second.index, 0)
         self.assertEqual(len(lineup.avatar_list), 4)
         self.assertEqual(
             sorted(avatar.id for avatar in lineup.avatar_list),
@@ -475,15 +477,16 @@ class ChallengeHandlersTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(self.session.challenge)
         kinds = [type(message).__name__ for message in self.sent]
         self.assertNotIn("ChallengeSettleNotify", kinds)
-        # 默认 advance=scene（LunarCore 做法）：重建下半场景并让客户端重进。
+        # advance=scene（LunarCore 做法）：阵容切换先在结果包前发，场景重建在结果后。
         self.assertEqual(
             kinds[-3:],
             [
-                "ChallengeLineupNotify",
+                "PVEBattleResultScRsp",
                 "SyncLineupNotify",
                 "EnterSceneByServerScNotify",
             ],
         )
+        self.assertEqual(kinds[0], "ChallengeLineupNotify")
         node2 = self.rt.endgame.challenge(1101).node2
         self.assertEqual(self.session.challenge.stage, 2)
         self.assertTrue(self.session.challenge.second)
@@ -493,15 +496,145 @@ class ChallengeHandlersTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(scene.entry_id, node2.entrance_id)
         group_ids = [group.group_id for group in scene.entity_group_list]
         self.assertIn(node2.maze_group_id, group_ids)
-        lineup_notify = self.sent[-3]
+        lineup_notify = self.sent[kinds.index("ChallengeLineupNotify")]
         self.assertEqual(
             lineup_notify.extra_lineup_type,
             pb.ExtraLineupType.ExtraLineupType_LineupChallenge2,
         )
 
-    async def test_advance_refresh_mode_sends_group_refresh(self) -> None:
-        """advance=refresh：同场景换组（DanhengServer 做法，保留用于 A/B）。"""
-        self.rt.cfg.endgame.advance = "refresh"
+    async def test_advance_inplace_uses_reference_packets(self) -> None:
+        """``advance=inplace``：同场景原地换组，包形与参考实现逐条对齐。
+
+        参考（HyacineCore 4.0 ``ChallengeMemoryInstance.NextPhase`` /
+        DanhengServer ``AdvanceStage``）：
+        ``ChallengeLineupNotify`` → 角色组刷新 → 卸旧迷宫组 → 装新迷宫组；
+        入口不变时**不重建 SceneInfo**（重建就是 4.6.54/4.7.0 的下半黑屏）。
+        """
+        self.rt.cfg.endgame.advance = "inplace"
+        await challenge_handlers.on_start_challenge(
+            self.session,
+            pb.StartChallengeCsReq(
+                challenge_id=1101,
+                avatar_lineup_first=self._lineup(1506, 1501),
+                avatar_lineup_second=self._lineup(1414, 1502),
+            ),
+        )
+        battle = await scene_handlers.on_cast_skill(
+            self.session, pb.SceneCastSkillCsReq(cast_entity_id=1)
+        )
+        self.sent.clear()
+        await battle_handlers.on_pve_result(
+            self.session,
+            pb.PVEBattleResultCsReq(
+                battle_id=battle.battle_info.battle_id,
+                stage_id=battle.battle_info.stage_id,
+                end_status=pb.BattleEndStatus.Value("BATTLE_END_WIN"),
+            ),
+        )
+        kinds = [type(message).__name__ for message in self.sent]
+        # 阵容切换在结果包之前（客户端还在战斗态就会处理，参考实现如此），
+        # 场景组刷新在结果包之后（战斗中发的组刷新会被客户端丢掉）。
+        self.assertEqual(kinds[0], "ChallengeLineupNotify")
+        self.assertEqual(
+            self.sent[0].extra_lineup_type,
+            pb.ExtraLineupType.ExtraLineupType_LineupChallenge2,
+        )
+        self.assertEqual(kinds.count("PVEBattleResultScRsp"), 1)
+        self.assertGreater(kinds.index("PVEBattleResultScRsp"), 0)
+        self.assertNotIn("EnterSceneByServerScNotify", kinds)
+        self.assertNotIn("SyncLineupNotify", kinds)
+
+        refreshes = [
+            message
+            for message in self.sent
+            if type(message).__name__ == "SceneGroupRefreshScNotify"
+        ]
+        # 角色组刷新在结果包之前（属于换人），卸/装迷宫组在结果包之后
+        self.assertEqual(len(refreshes), 3)
+        avatar_group = self.rt.cfg.world.avatar_group_id
+        rsp_index = kinds.index("PVEBattleResultScRsp")
+        refresh_indexes = [
+            index
+            for index, message in enumerate(self.sent)
+            if type(message).__name__ == "SceneGroupRefreshScNotify"
+        ]
+        before_rsp = [index for index in refresh_indexes if index < rsp_index]
+        after_rsp = [index for index in refresh_indexes if index > rsp_index]
+        self.assertEqual(len(before_rsp), 1)
+        self.assertEqual(len(after_rsp), 2)
+        avatar_refresh = self.sent[before_rsp[0]]
+        self.assertEqual(
+            [entry.group_id for entry in avatar_refresh.group_refresh_list],
+            [avatar_group],
+        )
+        self.assertTrue(
+            any(
+                item.HasField("delete_entity") for item in avatar_refresh.group_refresh_list[0].refresh_entity
+            )
+        )
+        self.assertTrue(
+            any(
+                item.HasField("add_entity") for item in avatar_refresh.group_refresh_list[0].refresh_entity
+            )
+        )
+        for refresh in refreshes:
+            for entry in refresh.group_refresh_list:
+                # 参考实现一个字段都不多设：state 不写、group_info 不带
+                self.assertEqual(entry.state, 0)
+                self.assertFalse(entry.HasField("group_info"))
+                self.assertEqual(
+                    entry.refresh_type,
+                    pb.SceneGroupRefreshType.SCENE_GROUP_REFRESH_TYPE_LOADED,
+                )
+        node1 = self.rt.endgame.challenge(1101).node1
+        node2 = self.rt.endgame.challenge(1101).node2
+        groups = [entry.group_id for refresh in refreshes for entry in refresh.group_refresh_list]
+        self.assertIn(node1.maze_group_id, groups)
+        self.assertIn(node2.maze_group_id, groups)
+        # 卸旧组只发 delete，装新组只发 add
+        unload = [
+            entry
+            for refresh in refreshes
+            for entry in refresh.group_refresh_list
+            if entry.group_id == node1.maze_group_id
+        ][0]
+        load = [
+            entry
+            for refresh in refreshes
+            for entry in refresh.group_refresh_list
+            if entry.group_id == node2.maze_group_id
+        ][0]
+        self.assertTrue(unload.refresh_entity)
+        self.assertTrue(
+            all(item.HasField("delete_entity") for item in unload.refresh_entity)
+        )
+        added = [item.add_entity for item in load.refresh_entity if item.HasField("add_entity")]
+        self.assertTrue(added)
+        self.assertEqual(added[0].npc_monster.event_id, node2.stage_id)
+        self.assertGreaterEqual(added[0].entity_id, 1010)
+        # 状态推进到下半，且下半用的对手是第二队
+        state = self.session.challenge
+        self.assertEqual(state.index, 1)
+        self.assertEqual(state.stage, 2)
+        self.assertTrue(state.second)
+        self.assertEqual(state.stage_id, node2.stage_id)
+        self.assertEqual(
+            state.avatars,
+            [self.rt.roster.base_id(1414), self.rt.roster.base_id(1502)],
+        )
+        # 下半再打一场用的是新实体 id 与新队伍
+        second_battle = await scene_handlers.on_cast_skill(
+            self.session, pb.SceneCastSkillCsReq(cast_entity_id=1)
+        )
+        self.assertEqual(second_battle.battle_info.stage_id, node2.stage_id)
+        self.assertEqual(
+            [avatar.id for avatar in second_battle.battle_info.battle_avatar_list],
+            state.avatars,
+        )
+
+    async def test_advance_scene_mode_still_available(self) -> None:
+        """``advance=scene`` 保留做 A/B：重建 SceneInfo 走 EnterSceneByServerScNotify。"""
+        self.rt.cfg.endgame.advance = "scene"
         await challenge_handlers.on_start_challenge(
             self.session,
             pb.StartChallengeCsReq(
@@ -521,26 +654,12 @@ class ChallengeHandlersTest(unittest.IsolatedAsyncioTestCase):
             ),
         )
         kinds = [type(message).__name__ for message in self.sent]
-        self.assertEqual(
-            kinds[-3:],
-            ["SceneGroupRefreshScNotify", "ChallengeLineupNotify", "SyncLineupNotify"],
-        )
-        node1 = self.rt.endgame.challenge(1101).node1
+        self.assertEqual(kinds[-1], "EnterSceneByServerScNotify")
         node2 = self.rt.endgame.challenge(1101).node2
-        refresh = self.sent[-3]
-        by_group = {entry.group_id: entry for entry in refresh.group_refresh_list}
-        self.assertIn(node1.maze_group_id, by_group)
-        self.assertIn(node2.maze_group_id, by_group)
-        # 4.6.54 的 _RefreshGroup_Legacy 在刷角色组时 NRE：这里只换迷宫组
-        self.assertNotIn(self.rt.cfg.world.avatar_group_id, by_group)
-        added = [
-            item.add_entity
-            for item in by_group[node2.maze_group_id].refresh_entity
-            if item.HasField("add_entity")
-        ]
-        self.assertTrue(added)
-        self.assertEqual(added[0].npc_monster.event_id, node2.stage_id)
-        self.assertGreaterEqual(added[0].entity_id, 1010)
+        scene = self.sent[-1].scene
+        self.assertEqual(scene.entry_id, node2.entrance_id)
+        group_ids = [group.group_id for group in scene.entity_group_list]
+        self.assertIn(node2.maze_group_id, group_ids)
 
     async def test_advance_none_waits_for_client_start(self) -> None:
         """advance=none：服务端不推任何包，等客户端自己发 StartChallenge（pearl 流程）。"""
@@ -666,6 +785,259 @@ class ChallengeHandlersTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(settle.star, 3)
         self.assertEqual(
             settle.cur_challenge.status, pb.ChallengeStatus.CHALLENGE_FINISH
+        )
+
+    async def test_leave_challenge_resets_extra_lineups(self) -> None:
+        """退出挑战要关掉 LineupChallenge/Challenge2（参考实现 HandlerLeaveChallenge）。
+
+        少了 ``ChallengeLineupNotify(LineupNone)``，客户端在下一场野外战斗里还拿
+        额外阵容当当前阵容（换队/开战错乱）。
+        """
+        await challenge_handlers.on_start_challenge(
+            self.session,
+            pb.StartChallengeCsReq(
+                challenge_id=1101, avatar_lineup_first=self._lineup(1506, 1501)
+            ),
+        )
+        self.sent.clear()
+        await challenge_handlers.on_leave_challenge(
+            self.session, pb.LeaveChallengeCsReq()
+        )
+        kinds = [type(message).__name__ for message in self.sent]
+        self.assertEqual(
+            kinds,
+            [
+                "ChallengeLineupNotify",
+                "SyncLineupNotify",
+                "QuitBattleScNotify",
+                "EnterSceneByServerScNotify",
+            ],
+        )
+        self.assertEqual(
+            self.sent[0].extra_lineup_type,
+            pb.ExtraLineupType.ExtraLineupType_LineupNone,
+        )
+        self.assertEqual(self.sent[1].lineup.extra_lineup_type, 0)
+        self.assertIsNone(self.session.challenge)
+
+    async def test_enter_next_phase_never_advances(self) -> None:
+        """``EnterChallengeNextPhase`` 只重发当前阶段场景，不能自己跳半场。"""
+        await challenge_handlers.on_start_challenge(
+            self.session,
+            pb.StartChallengeCsReq(
+                challenge_id=1101, avatar_lineup_first=self._lineup(1506, 1501)
+            ),
+        )
+        state = self.session.challenge
+        rsp = await challenge_handlers.on_enter_next_phase(
+            self.session, pb.EnterChallengeNextPhaseCsReq()
+        )
+        self.assertEqual(rsp.retcode, 0)
+        self.assertEqual(rsp.scene.entry_id, state.node.entrance_id)
+        self.assertEqual(state.index, 0)
+
+        # 没有挑战时回 retcode=1，别让客户端等一个空场景。
+        challenge_service.clear(self.session)
+        rsp = await challenge_handlers.on_enter_next_phase(
+            self.session, pb.EnterChallengeNextPhaseCsReq()
+        )
+        self.assertEqual(rsp.retcode, 1)
+
+    async def test_restart_phase_rebuilds_current_phase(self) -> None:
+        await challenge_handlers.on_start_challenge(
+            self.session,
+            pb.StartChallengeCsReq(
+                challenge_id=1101, avatar_lineup_first=self._lineup(1506, 1501)
+            ),
+        )
+        battle = await scene_handlers.on_cast_skill(
+            self.session, pb.SceneCastSkillCsReq(cast_entity_id=1)
+        )
+        self.assertTrue(self.session.challenge.battle_ids)
+        rsp = await challenge_handlers.on_restart_challenge_phase(
+            self.session, pb.RestartChallengePhaseCsReq()
+        )
+        self.assertEqual(rsp.retcode, 0)
+        state = self.session.challenge
+        self.assertEqual(state.index, 0)
+        self.assertFalse(state.battle_ids)
+        self.assertIsNone(self.session.battle_info)
+        node = self.rt.endgame.challenge(1101).node1
+        self.assertEqual(rsp.scene.entry_id, node.entrance_id)
+        # 重开后还能再打，且是新 battle id
+        again = await scene_handlers.on_cast_skill(
+            self.session, pb.SceneCastSkillCsReq(cast_entity_id=1)
+        )
+        self.assertNotEqual(again.battle_info.battle_id, battle.battle_info.battle_id)
+
+    async def test_result_stats_drive_round_count(self) -> None:
+        """剩余轮次 / 阵亡人数要落进 CurChallenge（旧实现永远是 0/30）。"""
+        await challenge_handlers.on_start_challenge(
+            self.session,
+            pb.StartChallengeCsReq(
+                challenge_id=1101, avatar_lineup_first=self._lineup(1506, 1501)
+            ),
+        )
+        state = self.session.challenge
+        countdown = self.rt.endgame.challenge(1101).countdown
+        self.assertEqual(state.rounds_left, countdown)
+        battle = await scene_handlers.on_cast_skill(
+            self.session, pb.SceneCastSkillCsReq(cast_entity_id=1)
+        )
+        req = pb.PVEBattleResultCsReq(
+            battle_id=battle.battle_info.battle_id,
+            stage_id=battle.battle_info.stage_id,
+            end_status=pb.BattleEndStatus.Value("BATTLE_END_WIN"),
+        )
+        req.stt.round_cnt = 2
+        await battle_handlers.on_pve_result(self.session, req)
+        self.assertEqual(state.rounds_left, countdown - 2)
+        cur = challenge_service.cur_challenge(self.session)
+        self.assertEqual(cur.round_count, 2)
+
+    async def test_avatar_group_refresh_only_when_team_changes(self) -> None:
+        """两队相同时不刷角色组（多发一条组刷新只会给 legacy 路径添乱）。"""
+        await challenge_handlers.on_start_challenge(
+            self.session,
+            pb.StartChallengeCsReq(
+                challenge_id=1101, avatar_lineup_first=self._lineup(1506, 1501)
+            ),
+        )
+        battle = await scene_handlers.on_cast_skill(
+            self.session, pb.SceneCastSkillCsReq(cast_entity_id=1)
+        )
+        self.sent.clear()
+        await battle_handlers.on_pve_result(
+            self.session,
+            pb.PVEBattleResultCsReq(
+                battle_id=battle.battle_info.battle_id,
+                stage_id=battle.battle_info.stage_id,
+                end_status=pb.BattleEndStatus.Value("BATTLE_END_WIN"),
+            ),
+        )
+        refreshes = [
+            message
+            for message in self.sent
+            if type(message).__name__ == "SceneGroupRefreshScNotify"
+        ]
+        groups = [
+            entry.group_id
+            for refresh in refreshes
+            for entry in refresh.group_refresh_list
+        ]
+        self.assertNotIn(self.rt.cfg.world.avatar_group_id, groups)
+
+    async def test_advance_client_mode_waits(self) -> None:
+        """``advance=client``：不推包，等客户端自己发 StartChallenge（pearl 流程）。"""
+        self.rt.cfg.endgame.advance = "client"
+        await challenge_handlers.on_start_challenge(
+            self.session,
+            pb.StartChallengeCsReq(
+                challenge_id=1101, avatar_lineup_first=self._lineup(1506, 1501)
+            ),
+        )
+        battle = await scene_handlers.on_cast_skill(
+            self.session, pb.SceneCastSkillCsReq(cast_entity_id=1)
+        )
+        self.sent.clear()
+        await battle_handlers.on_pve_result(
+            self.session,
+            pb.PVEBattleResultCsReq(
+                battle_id=battle.battle_info.battle_id,
+                stage_id=battle.battle_info.stage_id,
+                end_status=pb.BattleEndStatus.Value("BATTLE_END_WIN"),
+            ),
+        )
+        self.assertEqual(
+            [type(message).__name__ for message in self.sent], ["PVEBattleResultScRsp"]
+        )
+        self.assertEqual(self.session.challenge.index, 0)
+        rsp = await challenge_handlers.on_start_challenge(
+            self.session,
+            pb.StartChallengeCsReq(
+                challenge_id=1101, avatar_lineup_second=self._lineup(1414, 1502)
+            ),
+        )
+        self.assertEqual(rsp.retcode, 0)
+        self.assertEqual(self.session.challenge.index, 1)
+
+    async def test_round_budget_is_shared_across_phases(self) -> None:
+        """轮次预算跨半场共用：下半只能拿到「上半用剩的」，重打本半场回退。"""
+        await challenge_handlers.on_start_challenge(
+            self.session,
+            pb.StartChallengeCsReq(
+                challenge_id=1101, avatar_lineup_first=self._lineup(1506, 1501)
+            ),
+        )
+        state = self.session.challenge
+        countdown = self.rt.endgame.challenge(1101).countdown
+        battle = await scene_handlers.on_cast_skill(
+            self.session, pb.SceneCastSkillCsReq(cast_entity_id=1)
+        )
+        self.assertEqual(battle.battle_info.rounds_limit, countdown)
+        req = pb.PVEBattleResultCsReq(
+            battle_id=battle.battle_info.battle_id,
+            stage_id=battle.battle_info.stage_id,
+            end_status=pb.BattleEndStatus.Value("BATTLE_END_WIN"),
+        )
+        req.stt.round_cnt = 3
+        await battle_handlers.on_pve_result(self.session, req)
+        self.assertEqual(state.index, 1)
+        self.assertEqual(state.rounds_left, countdown - 3)
+        lower = await scene_handlers.on_cast_skill(
+            self.session, pb.SceneCastSkillCsReq(cast_entity_id=1)
+        )
+        self.assertEqual(lower.battle_info.rounds_limit, countdown - 3)
+
+        await challenge_handlers.on_restart_challenge_phase(
+            self.session, pb.RestartChallengePhaseCsReq()
+        )
+        self.assertEqual(state.rounds_left, countdown - 3)
+        retry = await scene_handlers.on_cast_skill(
+            self.session, pb.SceneCastSkillCsReq(cast_entity_id=1)
+        )
+        self.assertEqual(retry.battle_info.rounds_limit, countdown - 3)
+
+    async def test_scene_info_uses_current_phase_team(self) -> None:
+        """挑战中 GetCurSceneInfo 要用场上这一队，不能用野外阵容。"""
+        await challenge_handlers.on_start_challenge(
+            self.session,
+            pb.StartChallengeCsReq(
+                challenge_id=1101,
+                avatar_lineup_first=self._lineup(1506, 1501),
+                avatar_lineup_second=self._lineup(1414, 1502),
+            ),
+        )
+        first_scene = scene_service.build_scene(self.session)
+        first_ids = [
+            entity.actor.base_avatar_id
+            for group in first_scene.entity_group_list
+            for entity in group.entity_list
+            if entity.HasField("actor")
+        ]
+        self.assertEqual(first_ids, [self.rt.roster.base_id(1506), self.rt.roster.base_id(1501)])
+
+        battle = await scene_handlers.on_cast_skill(
+            self.session, pb.SceneCastSkillCsReq(cast_entity_id=1)
+        )
+        await battle_handlers.on_pve_result(
+            self.session,
+            pb.PVEBattleResultCsReq(
+                battle_id=battle.battle_info.battle_id,
+                stage_id=battle.battle_info.stage_id,
+                end_status=pb.BattleEndStatus.Value("BATTLE_END_WIN"),
+            ),
+        )
+        second_scene = scene_service.build_scene(self.session)
+        second_ids = [
+            entity.actor.base_avatar_id
+            for group in second_scene.entity_group_list
+            for entity in group.entity_list
+            if entity.HasField("actor")
+        ]
+        self.assertEqual(
+            second_ids,
+            [self.rt.roster.base_id(1414), self.rt.roster.base_id(1502)],
         )
 
     async def test_single_stage_challenge_settles_immediately(self) -> None:
@@ -867,12 +1239,12 @@ class ChallengeHandlersTest(unittest.IsolatedAsyncioTestCase):
 
 
     async def test_tierce_advance_by_group_swap(self) -> None:
-        """``advance = "refresh"``：星启换节点只发组刷新，不重建场景。
+        """星启换节点：同场景换组（``inplace``），不重建 SceneInfo。
 
         4.7.0 真机 21:35：重建 ``SceneInfo`` 进节点二 → 客户端"场景不对" + 战斗黑屏
-        （和 4.6.54 下半同一症状），所以这条原地换组的路要留一个开关。
+        （和 4.6.54 下半同一症状），所以节点之间走原地换组。
         """
-        self.rt.cfg.endgame.advance = "refresh"
+        self.rt.cfg.endgame.advance = "inplace"
         await challenge_handlers.on_start_challenge_tierce(
             self.session,
             pb.StartChallengeTierceCsReq(
@@ -900,10 +1272,15 @@ class ChallengeHandlersTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("SceneGroupRefreshScNotify", names)
         self.assertNotIn("EnterSceneByServerScNotify", names)
         self.assertEqual(self.session.challenge.stage_index, 1)
-        refresh = [m for m in self.sent if type(m).__name__ == "SceneGroupRefreshScNotify"][0]
-        groups = [item.group_id for item in refresh.group_refresh_list]
+        groups = [
+            entry.group_id
+            for message in self.sent
+            if type(message).__name__ == "SceneGroupRefreshScNotify"
+            for entry in message.group_refresh_list
+        ]
         # 旧组（node1 的 9）卸掉、新组（node2 的 10）装上
         self.assertIn(10, groups)
+        self.assertIn(9, groups)
 
 
 if __name__ == "__main__":

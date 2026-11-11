@@ -87,13 +87,14 @@ moc_group_id = 0
 # true = 所有层按满星下发（客户端视为已解锁、可重打，pearl-sr 做法，默认 A 口径）
 # false = 没通关历史就发 0 星（会锁住后面的层；通关历史在 M3 落库后再用）
 unlock_all = true
-# 上半打完 / 星启模式打完一个节点之后怎么进下一个：
+# 一个阶段（上半 / 星启节点）打完怎么进下一个：
+#   inplace = 同场景原地换组：ChallengeLineupNotify + 角色组刷新 +
+#             SceneGroupRefreshScNotify（卸旧组 / 装新组，参考实现做法，默认）
 #   scene   = 重建下一个节点的 SceneInfo 再 EnterSceneByServerScNotify（LunarCore 做法）
-#   refresh = 同场景原地换实体组 SceneGroupRefreshScNotify（DanhengServer 做法）
-#   none    = 只回战斗结果，等客户端自己发 StartChallenge（pearl 流程）
-# 4.7.0 真机：scene 能进节点二但"场景不对 + 战斗黑屏"（21:35，和 4.6.54 下半同症状），
-# 所以改成 refresh 试一版；4.6.54 的 _RefreshGroup_Legacy 会 NRE，4.7.0 未验证。
-advance = "refresh"
+#   client  = 只回战斗结果，等客户端自己发 StartChallenge（pearl 流程）
+# 2026-11-11 真机：4.6.54 / 4.7.0 的「下半黑屏」都出在 scene 这条路上（重建
+# SceneInfo 后客户端第二次战斗不渲染），所以默认改成 inplace。
+advance = "inplace"
 # 大厅报哪些场景组（客户端按“已加载组”创建地图 NPC）。装饰组里有 4.6.54 客户端
 # 定义残缺的 MapNPC:227-400001，会把传送加载卡死，所以只报可交互展台。
 #   all = 全部 / crystals = 只报 prop_id >= 100000 的展台 / none = 都不报
