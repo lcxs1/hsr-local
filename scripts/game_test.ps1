@@ -695,16 +695,30 @@ $verdicts += [pscustomobject]@{ Item = '下半胜利'; Value = "$($lowerWin.Coun
 $verdicts += [pscustomobject]@{ Item = '结算 notify'; Value = "$($settles.Count) 次"; Ok = ($settles.Count -gt 0) }
 $verdicts += [pscustomobject]@{ Item = '退出挑战'; Value = "$($leaves.Count) 次"; Ok = ($leaves.Count -gt 0) }
 
-# 上半是否被重打：同一 stage 出现两次 battle info
-$upperStages = @($battleInfos | Where-Object { (Get-Phase $_.Line) -eq 1 } | ForEach-Object {
-    if ($_.Line -match 'stage=(\d+)') { $Matches[1] }
-})
-$replayedUpper = ($upperStages.Count -gt 1 -and (@($upperStages | Select-Object -Unique)).Count -lt $upperStages.Count)
+# 上半是否被“重打”：同一次挑战里出现两条 phase=1 的 battle info
+$upperSeen = $false
+$replayedUpper = $false
+foreach ($event in $events) {
+    if ($event.Name -in @('start', 'tierce-start', 'leave', 'settle', 'direct')) {
+        $upperSeen = $false
+    }
+    if ($event.Name -eq 'battle-info' -and (Get-Phase $event.Line) -eq 1) {
+        if ($upperSeen) { $replayedUpper = $true }
+        $upperSeen = $true
+    }
+}
 
-# 客户端在“下半战斗包之后”的反应：advance 时间点 → 结束
+# 客户端在“下半战斗包之后”的反应：advance 时间点 → 下一次开始/退出（只取第一轮）
 $advanceStamp = if ($advances.Count) { $advances[0].Time } else { '' }
+$windowEnd = ''
+if ($advanceStamp) {
+    $after = @($events | Where-Object {
+        $_.Name -in @('start', 'tierce-start', 'leave', 'enter-scene', 'settle') -and $_.Time -and $_.Time -gt $advanceStamp
+    } | Sort-Object Time)
+    if ($after.Count) { $windowEnd = $after[0].Time }
+}
 $secondHalfPackets = @()
-if ($advanceStamp) { $secondHalfPackets = @(Select-Window $packetLines $advanceStamp '') }
+if ($advanceStamp) { $secondHalfPackets = @(Select-Window $packetLines $advanceStamp $windowEnd) }
 $quitAfterBattle = @($secondHalfPackets | Where-Object { $_ -match 'QuitBattleCsReq' })
 $castAfterAdvance = @($secondHalfPackets | Where-Object { $_ -match 'SceneCastSkillCsReq' })
 
@@ -734,6 +748,26 @@ $verdicts += [pscustomobject]@{
     Item  = '客户端 MapNPC 加载失败'
     Value = $(if ($mapNpcFails.Count) { "$($mapNpcFails.Count) 条（大厅 floor 的坏 NPC）" } else { '无' })
     Ok    = ($mapNpcFails.Count -eq 0)
+}
+
+# 组刷新相关的客户端报错：4.7.0 会把 LOADED 的“卸载包”当成激活组
+# （这类行不含 "Exception"，所以要单独扫全量客户端日志）
+$groupFailLines = @($clientLines | Where-Object {
+    $_ -match 'Already Exists|_ActiveServerHoyoGroup|RefreshServerHoyoGroup|ServerGroupID'
+})
+$verdicts += [pscustomobject]@{
+    Item  = '客户端组刷新报错'
+    Value = $(if ($groupFailLines.Count) { "$($groupFailLines.Count) 条（LOADED 卸载包 → Already Exists/NRE）" } else { '无' })
+    Ok    = ($groupFailLines.Count -eq 0)
+}
+
+# advance 之后客户端有没有发过 cast：没有 = 客户端卡在近战/黑屏（本次修复的目标）
+if ($advances.Count) {
+    $verdicts += [pscustomobject]@{
+        Item  = '下半是否发出 cast'
+        Value = $(if ($castAfterAdvance.Count) { "cast $($castAfterAdvance.Count) 次" } else { 'advance 后没有任何 SceneCastSkill（客户端卡住）' })
+        Ok    = ($castAfterAdvance.Count -gt 0)
+    }
 }
 
 # --- 报告 -----------------------------------------------------------------

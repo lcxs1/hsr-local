@@ -549,8 +549,8 @@ class ChallengeHandlersTest(unittest.IsolatedAsyncioTestCase):
             for message in self.sent
             if type(message).__name__ == "SceneGroupRefreshScNotify"
         ]
-        # 角色组刷新在结果包之前（属于换人），卸/装迷宫组在结果包之后
-        self.assertEqual(len(refreshes), 3)
+        # 角色组刷新 + 装 node2（默认不卸 node1）
+        self.assertEqual(len(refreshes), 2)
         avatar_group = self.rt.cfg.world.avatar_group_id
         rsp_index = kinds.index("PVEBattleResultScRsp")
         refresh_indexes = [
@@ -561,7 +561,7 @@ class ChallengeHandlersTest(unittest.IsolatedAsyncioTestCase):
         before_rsp = [index for index in refresh_indexes if index < rsp_index]
         after_rsp = [index for index in refresh_indexes if index > rsp_index]
         self.assertEqual(len(before_rsp), 1)
-        self.assertEqual(len(after_rsp), 2)
+        self.assertEqual(len(after_rsp), 1)
         avatar_refresh = self.sent[before_rsp[0]]
         self.assertEqual(
             [entry.group_id for entry in avatar_refresh.group_refresh_list],
@@ -589,27 +589,22 @@ class ChallengeHandlersTest(unittest.IsolatedAsyncioTestCase):
         node1 = self.rt.endgame.challenge(1101).node1
         node2 = self.rt.endgame.challenge(1101).node2
         groups = [entry.group_id for refresh in refreshes for entry in refresh.group_refresh_list]
-        self.assertIn(node1.maze_group_id, groups)
+        # 默认不卸旧组：4.7.0 把 `refresh_type=LOADED` 的卸载包当成“激活组”，
+        # 报 "Reload ServerGroup Error, Already Exists" 并在 _ActiveServerHoyoGroup NRE。
+        self.assertNotIn(node1.maze_group_id, groups)
         self.assertIn(node2.maze_group_id, groups)
-        # 卸旧组只发 delete，装新组只发 add
-        unload = [
-            entry
-            for refresh in refreshes
-            for entry in refresh.group_refresh_list
-            if entry.group_id == node1.maze_group_id
-        ][0]
+        # 装新组只发 add（一条 LOADED），不带 delete
         load = [
             entry
             for refresh in refreshes
             for entry in refresh.group_refresh_list
             if entry.group_id == node2.maze_group_id
         ][0]
-        self.assertTrue(unload.refresh_entity)
-        self.assertTrue(
-            all(item.HasField("delete_entity") for item in unload.refresh_entity)
-        )
         added = [item.add_entity for item in load.refresh_entity if item.HasField("add_entity")]
         self.assertTrue(added)
+        self.assertFalse(
+            any(item.HasField("delete_entity") for item in load.refresh_entity)
+        )
         self.assertEqual(added[0].npc_monster.event_id, node2.stage_id)
         self.assertGreaterEqual(added[0].entity_id, 1010)
         # 状态推进到下半，且下半用的对手是第二队
@@ -998,6 +993,49 @@ class ChallengeHandlersTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(retry.battle_info.rounds_limit, countdown - 3)
 
+    async def test_advance_can_unload_old_group(self) -> None:
+        """`unload_old_group=true`：卸载用 `refresh_type=UNLOAD`（整组），不是 LOADED。
+
+        4.7.0 把 LOADED 的卸载包当成“激活组”→ `Already Exists` + NRE，
+        所以默认不卸；这条只验证开关真的换成 UNLOAD。
+        """
+        self.rt.cfg.endgame.advance = "inplace"
+        self.rt.cfg.endgame.unload_old_group = True
+        await challenge_handlers.on_start_challenge(
+            self.session,
+            pb.StartChallengeCsReq(
+                challenge_id=1101, avatar_lineup_first=self._lineup(1506, 1501)
+            ),
+        )
+        battle = await scene_handlers.on_cast_skill(
+            self.session, pb.SceneCastSkillCsReq(cast_entity_id=1)
+        )
+        self.sent.clear()
+        await battle_handlers.on_pve_result(
+            self.session,
+            pb.PVEBattleResultCsReq(
+                battle_id=battle.battle_info.battle_id,
+                stage_id=battle.battle_info.stage_id,
+                end_status=pb.BattleEndStatus.Value("BATTLE_END_WIN"),
+            ),
+        )
+        refreshes = [
+            message
+            for message in self.sent
+            if type(message).__name__ == "SceneGroupRefreshScNotify"
+        ]
+        entries = [
+            entry for refresh in refreshes for entry in refresh.group_refresh_list
+        ]
+        node1 = self.rt.endgame.challenge(1101).node1
+        unload = [entry for entry in entries if entry.group_id == node1.maze_group_id]
+        self.assertTrue(unload)
+        self.assertEqual(
+            unload[0].refresh_type,
+            pb.SceneGroupRefreshType.SCENE_GROUP_REFRESH_TYPE_UNLOAD,
+        )
+        self.assertFalse(unload[0].refresh_entity)
+
     async def test_scene_info_uses_current_phase_team(self) -> None:
         """挑战中 GetCurSceneInfo 要用场上这一队，不能用野外阵容。"""
         await challenge_handlers.on_start_challenge(
@@ -1278,9 +1316,9 @@ class ChallengeHandlersTest(unittest.IsolatedAsyncioTestCase):
             if type(message).__name__ == "SceneGroupRefreshScNotify"
             for entry in message.group_refresh_list
         ]
-        # 旧组（node1 的 9）卸掉、新组（node2 的 10）装上
+        # 装新组（node2 的 10）；默认不卸 node1 的 9
         self.assertIn(10, groups)
-        self.assertIn(9, groups)
+        self.assertNotIn(9, groups)
 
 
 if __name__ == "__main__":

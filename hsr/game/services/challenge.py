@@ -666,11 +666,21 @@ def _advance_inplace(session, state: ChallengeState, phase: Phase) -> Transition
         before.append(avatars)
     after: list = []
     if previous.node.maze_group_id != phase.node.maze_group_id:
-        after.append(
-            scene_service.unload_group_notify(
-                session, previous.node.maze_group_id, old_entities
+        # 4.7.0 真机 22:56：用 `refresh_type=LOADED` 发“卸旧组”（逐实体 delete）
+        # 会被客户端当成“激活这个组” → `Reload ServerGroup Error, Already Exists!!!
+        # ServerGroupID: 9` → `MapDef._ActiveServerHoyoGroup` NRE → 客户端卡在黑屏/
+        # 近战，且**再也不会发 SceneCastSkill**。
+        # 所以默认不卸旧组，只加载新组（旧组的怪在上半已经被打死，视觉上没有残留）；
+        # 需要真卸载时 `[endgame] unload_old_group = true` 走 `refresh_type=UNLOAD`。
+        if bool(getattr(session.runtime.cfg.endgame, "unload_old_group", False)):
+            after.append(
+                scene_service.unload_group_notify(
+                    session,
+                    previous.node.maze_group_id,
+                    old_entities,
+                    refresh_type=scene_service.GROUP_REFRESH_UNLOAD,
+                )
             )
-        )
         after.append(
             scene_service.load_group_notify(
                 session, phase.node.maze_group_id, new_entities

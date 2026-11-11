@@ -355,8 +355,15 @@ async def run_challenge_flow(
             if type(message).__name__ == "SceneGroupRefreshScNotify"
             for entry in message.group_refresh_list
         ]
-        _check(challenge.node1.maze_group_id in groups, "old arena group was not unloaded")
-        _check(challenge.node2.maze_group_id in groups, "new arena group was not loaded")
+        _check(
+            challenge.node2.maze_group_id in groups,
+            "new arena group was not loaded",
+        )
+        # 4.7.0 把 LOADED 的卸载包当成“激活组”（Already Exists + NRE），默认不卸旧组。
+        _check(
+            challenge.node1.maze_group_id not in groups,
+            "old arena group must not be refreshed with LOADED",
+        )
         result.events.append("challenge_advance")
 
         lower = await fight()

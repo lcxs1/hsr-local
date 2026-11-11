@@ -598,6 +598,9 @@ def _challenge_entities(
 # （见 guide/03 坑 35）。参考实现（HyacineCore 4.0 ``PacketSceneGroupRefreshScNotify``，
 # 同日 DanhengServer 同文件）一个字段都不多设。
 GROUP_REFRESH_LOADED = pb.SceneGroupRefreshType.SCENE_GROUP_REFRESH_TYPE_LOADED
+# 4.7.0 的语义：LOADED = 激活这个组（已激活时会在 _ActiveServerHoyoGroup 里 NRE），
+# UNLOAD = 整组卸载。卸载**必须**用 UNLOAD。
+GROUP_REFRESH_UNLOAD = pb.SceneGroupRefreshType.SCENE_GROUP_REFRESH_TYPE_UNLOAD
 
 
 def group_refresh_notify(
@@ -605,12 +608,19 @@ def group_refresh_notify(
     *,
     add: list[pb.SceneEntityInfo] | None = None,
     remove: list[pb.SceneEntityInfo] | None = None,
+    group_ids: list[int] | None = None,
+    refresh_type: int = GROUP_REFRESH_LOADED,
 ) -> pb.SceneGroupRefreshScNotify:
     """One ``SceneGroupRefreshScNotify`` with per-group add/delete lists.
 
     ``remove`` entries only need ``group_id`` + ``entity_id``; ``add`` entries are
     full ``SceneEntityInfo`` messages.  Resulting ``GroupRefreshInfo`` keeps the
     reference shape (no ``state``, no ``group_info``, no combined groups).
+
+    ``refresh_type`` matters on 4.7.0: ``LOADED`` means **activate this group**
+    (the client logs ``Reload ServerGroup Error, Already Exists`` + NREs in
+    ``MapDef._ActiveServerHoyoGroup`` when the group is already active), so it
+    must never be used to unload a group.  Use ``UNLOAD`` for that.
     """
     state = session.scene
     buckets: dict[int, pb.GroupRefreshInfo] = {}
@@ -620,7 +630,7 @@ def group_refresh_notify(
         if info is None:
             info = pb.GroupRefreshInfo(
                 group_id=int(group_id),
-                refresh_type=GROUP_REFRESH_LOADED,
+                refresh_type=refresh_type,
             )
             buckets[int(group_id)] = info
         return info
@@ -633,6 +643,8 @@ def group_refresh_notify(
         bucket(entity.group_id).refresh_entity.append(
             pb.SceneEntityRefreshInfo(add_entity=entity)
         )
+    for group_id in group_ids or []:
+        bucket(group_id)
     return pb.SceneGroupRefreshScNotify(
         floor_id=state.floor_id,
         dimension_id=state.dimension_id,
@@ -641,9 +653,24 @@ def group_refresh_notify(
 
 
 def unload_group_notify(
-    session, group_id: int, entities: list[pb.SceneEntityInfo]
+    session,
+    group_id: int,
+    entities: list[pb.SceneEntityInfo],
+    *,
+    refresh_type: int = GROUP_REFRESH_UNLOAD,
 ) -> pb.SceneGroupRefreshScNotify:
-    """Unload one maze group (delete every entity it owned)."""
+    """Unload one maze group.
+
+    Default ``refresh_type=UNLOAD`` (整组卸载)；``refresh_type=LOADED`` 保留旧的
+    “LOaded + 逐实体 delete” 写法，只用于对照（4.7.0 上会 NRE，见
+    :func:`group_refresh_notify`）。
+    """
+    if refresh_type == GROUP_REFRESH_UNLOAD:
+        return group_refresh_notify(
+            session,
+            group_ids=[int(group_id)],
+            refresh_type=GROUP_REFRESH_UNLOAD,
+        )
     return group_refresh_notify(
         session,
         remove=[
@@ -653,6 +680,7 @@ def unload_group_notify(
             )
             for entity in entities
         ],
+        refresh_type=refresh_type,
     )
 
 

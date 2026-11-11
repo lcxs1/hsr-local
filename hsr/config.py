@@ -117,6 +117,14 @@ class EndgameSettings(BaseModel):
     def _legacy_lobby_teleport(cls, value):
         """``auto`` was a short-lived default (4.7.0 ignore); map it back."""
         return "scene" if str(value).lower() == "auto" else str(value).lower()
+
+    # 阶段切换时要不要发“卸载旧迷宫组”。
+    # 4.7.0 真机（2026-11-11 22:56）：用 GroupRefreshInfo(refresh_type=LOADED,
+    # 逐实体 delete) 发卸载 → 客户端当成“激活这个组”，报
+    # `Reload ServerGroup Error, Already Exists ... ServerGroupID: 9` 并 NRE，
+    # 之后卡在黑屏/近战、再也不发 SceneCastSkill。所以默认 **不卸载**，只加载新组。
+    # true = 发 refresh_type=UNLOAD 的整组卸载（未真机验证）。
+    unload_old_group: bool = False
     # 登录后多少秒内点「传送」要压着场景推送，等客户端自己的场景加载态就绪再发。
     # 4.7.0 真机三组数据（同版本、同入口）：
     #   登录后 18 s 传送 -> 卡死；113 s 传送 -> 正常；14 s 传送 -> 卡死。
