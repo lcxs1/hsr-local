@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import json
 import logging
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 
 from hsr.config import AppConfig
-from hsr.game.services.endgame import AS, MOC, PF, EndgameData, mode_of
+from hsr.game.services.endgame import AS, MOC, PF, EndgameData, latest_index, mode_of
 
 log = logging.getLogger("hsr.test")
 
@@ -110,6 +112,65 @@ class EndgameDataTest(unittest.TestCase):
             data = EndgameData.load(Path(tmp) / "nope.json", log)
         self.assertIsNotNone(data.load_error)
         self.assertEqual(data.challenges, {})
+
+
+class SeasonTest(unittest.TestCase):
+    """Rotation metadata from data/vendor (scripts/import_srtools.py)."""
+
+    def _index(self, tmp: Path) -> Path:
+        path = tmp / "endgame_index.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "modes": {
+                        "MOC": {
+                            "groups": [
+                                {
+                                    "id": 1035,
+                                    "name": "来生泅渡",
+                                    "begin": "2026-09-21 04:00:00",
+                                    "end": "2026-11-02 04:00:00",
+                                },
+                                {
+                                    "id": 1036,
+                                    "name": "物竞天择",
+                                    "begin": "2026-11-02 04:00:00",
+                                    "end": "2026-12-14 04:00:00",
+                                },
+                            ]
+                        }
+                    }
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        return path
+
+    def test_active_group_by_time(self):
+        cfg = AppConfig.load()
+        with tempfile.TemporaryDirectory() as tmp:
+            data = EndgameData.load(
+                cfg.paths.resolve(cfg.paths.endgame),
+                log,
+                seasons_path=self._index(Path(tmp)),
+            )
+        self.assertEqual(data.active_group(MOC, datetime(2026, 11, 11, 12, 0)), 1036)
+        self.assertEqual(data.active_group(MOC, datetime(2026, 10, 1, 0, 0)), 1035)
+        self.assertEqual(data.active_group(MOC, datetime(2027, 1, 1, 0, 0)), 0)
+        self.assertEqual(data.active_group(PF, datetime(2026, 11, 11, 12, 0)), 0)
+        self.assertEqual(data.season(1036).name, "物竞天择")
+
+    def test_real_vendor_index(self):
+        cfg = AppConfig.load()
+        index = latest_index(cfg.data_dir)
+        if index is None:
+            self.skipTest("no data/vendor/srtools-*/endgame_index.json")
+        data = EndgameData.load(cfg.paths.resolve(cfg.paths.endgame), log, seasons_path=index)
+        self.assertTrue(data.seasons)
+        group_id = data.active_group(MOC, datetime(2026, 11, 11, 12, 0))
+        self.assertEqual(group_id, 1036)
+        self.assertEqual(data.season(group_id).name, "物竞天择")
 
 
 if __name__ == "__main__":

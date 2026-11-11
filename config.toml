@@ -76,6 +76,24 @@ technique_points = "unlimited"
 technique_points_max = 5
 technique_refill_seconds = 5.0
 
+[endgame]
+# 终局玩法口径（AGENTS.md §5 的 A 模拟器口径）。只影响混沌回忆/虚构叙事/末日幻影
+# 的列表与解锁方式，不改协议形态。
+# 混沌回忆用哪一期（一组 = 一期 10/12 层）：
+#   0 = 按 data/vendor/srtools-*/endgame_index.json 的 BeginTime/EndTime 自动选
+#       当前赛季（2026-11-11 = 1036「物竞天择」，12-14 起换成 1037「漆黑残响」）
+#   其他数字 = 强制用那一组
+moc_group_id = 0
+# true = 所有层按满星下发（客户端视为已解锁、可重打，pearl-sr 做法，默认 A 口径）
+# false = 没通关历史就发 0 星（会锁住后面的层；通关历史在 M3 落库后再用）
+unlock_all = true
+# M0 真机探针开关：一次只改一个，改完登录看忘却之庭右侧卡片数。
+#   all     = 发全部 109 个组（现状）
+#   rewards = 只发领过星数奖励的组（DanhengServer 写法，新号 = 空列表）
+group_list = "all"
+# true = 额外发 max_level_list（Himeko-Nova-SR 的写法，字段语义未确认）
+send_max_level = false
+
 [features]
 send_hotfix = true
 # 本地 CDN 回放：hotfix 里带 LOCAL_CDN 前缀的条目换成 http://127.0.0.1:21000/cdn，

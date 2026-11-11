@@ -34,14 +34,20 @@ PF_SCORE_ID = challenge_service.PF_SCORE_ID
 
 
 def _challenge_list(session: Session) -> list[pb.Challenge]:
+    """All challenges.  ``unlock_all`` (A 口径) marks every floor as cleared so
+    the client lets the player pick any of them; a real history replaces this in
+    M3 (see docs/design/04)."""
+    unlock_all = bool(session.runtime.cfg.endgame.unlock_all)
+    star = CHALLENGE_STAR if unlock_all else 0
+    taken = CHALLENGE_TAKEN_REWARD if unlock_all else 0
     items: list[pb.Challenge] = []
     for challenge in sorted(session.runtime.endgame.challenges.values(), key=lambda c: c.id):
         score_id = PF_SCORE_ID if challenge.mode == "PF" else 0
         items.append(
             pb.Challenge(
                 challenge_id=challenge.id,
-                star=CHALLENGE_STAR,
-                taken_reward=CHALLENGE_TAKEN_REWARD,
+                star=star,
+                taken_reward=taken,
                 score_id=score_id,
                 score_two=score_id,
             )
@@ -67,7 +73,12 @@ def _group_list(session: Session) -> list[pb.ChallengeGroup]:
     只发 ``challenge_list`` 时界面只剩零星两个默认组（2026-11-11 真机：混沌回忆的
     关卡组页面整个缺失）。``taken_stars_count_reward`` 置 0 = 未领取星数奖励，
     与 ``Challenge.taken_reward`` 的"已解锁"语义互不冲突。
+
+    ``[endgame] group_list = "rewards"`` 是 M0 探针开关：DanhengServer 只发**领过奖**
+    的组（新号等于空列表），用来对比卡片是不是被这 109 条"假组"顶掉了。
     """
+    if session.runtime.cfg.endgame.group_list == "rewards":
+        return []
     groups: dict[int, pb.ChallengeGroup] = {}
     for challenge in session.runtime.endgame.challenges.values():
         if challenge.group_id and challenge.group_id not in groups:
@@ -78,6 +89,36 @@ def _group_list(session: Session) -> list[pb.ChallengeGroup]:
     return [groups[group_id] for group_id in sorted(groups)]
 
 
+def _max_level_list(session: Session) -> list[pb.ChallengeHistoryMaxLevel]:
+    """M0 探针：Himeko-Nova-SR 会发 12 层 / 4 层两条，字段语义未确认。
+
+    只用于观察“第三张卡”是不是缺它；``[endgame] send_max_level = false`` 时保持
+    现状（一条都不发）。
+    """
+    if not session.runtime.cfg.endgame.send_max_level:
+        return []
+    return [
+        pb.ChallengeHistoryMaxLevel(level=12, reward_display_type=101212),
+        pb.ChallengeHistoryMaxLevel(level=4, reward_display_type=101404),
+    ]
+
+
+def _active_season(session: Session) -> tuple[int, str]:
+    """``(group_id, label)`` of the 混沌回忆 rotation the server is serving."""
+    cfg_group = int(session.runtime.cfg.endgame.moc_group_id or 0)
+    endgame = session.runtime.endgame
+    group_id = cfg_group or endgame.active_group("MOC")
+    season = endgame.season(group_id) if group_id else None
+    if season is None:
+        return group_id, f"group={group_id}" if group_id else "group=unknown"
+    return group_id, (
+        f"group={group_id} ({season.name}) "
+        f"{season.begin:%Y-%m-%d}..{season.end:%Y-%m-%d}"
+        if season.begin and season.end
+        else f"group={group_id} ({season.name})"
+    )
+
+
 async def on_get_challenge(
     session: Session, req: pb.GetChallengeCsReq
 ) -> pb.GetChallengeScRsp:
@@ -85,11 +126,15 @@ async def on_get_challenge(
         retcode=0,
         challenge_list=_challenge_list(session),
         challenge_group_list=_group_list(session),
+        max_level_list=_max_level_list(session),
     )
-    session.runtime.logger.debug(
-        "challenge list: %d entries / %d groups",
+    _, season = _active_season(session)
+    session.runtime.logger.info(
+        "challenge list: %d entries / %d groups / %d max-level; active MOC season %s",
         len(rsp.challenge_list),
         len(rsp.challenge_group_list),
+        len(rsp.max_level_list),
+        season,
     )
     return rsp
 
@@ -212,7 +257,7 @@ async def on_start_challenge(
         active.second_avatars = [
             runtime.roster.base_id(avatar_id) for avatar_id in second_ids if avatar_id
         ]
-        scene = challenge_service.advance_stage(session)
+        scene = challenge_service.enter_second_half(session)
         runtime.logger.info(
             "start challenge (second half): id=%d team=%s",
             challenge.id,
@@ -222,7 +267,7 @@ async def on_start_challenge(
             retcode=0,
             scene=scene,
             cur_challenge=challenge_service.cur_challenge(session),
-            lineup_list=[challenge_service.lineup_info(session)],
+            lineup_list=challenge_service.lineups(session),
         )
 
     second = bool(second_ids) and not first_ids
@@ -269,7 +314,7 @@ async def on_start_challenge(
         retcode=0,
         scene=scene,
         cur_challenge=challenge_service.cur_challenge(session),
-        lineup_list=[challenge_service.lineup_info(session)],
+        lineup_list=challenge_service.lineups(session),
     )
 
 
@@ -281,7 +326,7 @@ async def on_get_cur_challenge(
     return pb.GetCurChallengeScRsp(
         retcode=0,
         cur_challenge=challenge_service.cur_challenge(session),
-        lineup_list=[challenge_service.lineup_info(session)],
+        lineup_list=challenge_service.lineups(session),
     )
 
 

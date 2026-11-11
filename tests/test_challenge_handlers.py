@@ -104,11 +104,18 @@ class ChallengeHandlersTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             rsp.cur_challenge.status, pb.ChallengeStatus.CHALLENGE_DOING
         )
-        self.assertEqual(len(rsp.lineup_list), 1)
-        lineup = rsp.lineup_list[0]
+        # 1101 has a 下半: both teams go out in the response (DanhengServer and
+        # LunarCore send both for StageNum >= 2); the second one falls back to the
+        # first when the client only configured one lineup.
+        self.assertEqual(len(rsp.lineup_list), 2)
+        lineup, second = rsp.lineup_list
         self.assertEqual(
             lineup.extra_lineup_type,
             pb.ExtraLineupType.ExtraLineupType_LineupChallenge,
+        )
+        self.assertEqual(
+            second.extra_lineup_type,
+            pb.ExtraLineupType.ExtraLineupType_LineupChallenge2,
         )
         self.assertEqual(len(lineup.avatar_list), 4)
         self.assertEqual(
@@ -157,7 +164,11 @@ class ChallengeHandlersTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rsp.retcode, 0)
         self.assertEqual(rsp.scene.floor_id, challenge.node2.floor_id)
         self.assertEqual(
-            rsp.lineup_list[0].extra_lineup_type,
+            rsp.cur_challenge.extra_lineup_type,
+            pb.ExtraLineupType.ExtraLineupType_LineupChallenge2,
+        )
+        self.assertEqual(
+            rsp.lineup_list[1].extra_lineup_type,
             pb.ExtraLineupType.ExtraLineupType_LineupChallenge2,
         )
         buffs = list(rsp.cur_challenge.stage_info.cur_story_buffs.buff_list)
@@ -195,7 +206,7 @@ class ChallengeHandlersTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(cur.HasField("cur_challenge"))
         self.assertEqual(cur.cur_challenge.challenge_id, 1101)
-        self.assertEqual(len(cur.lineup_list), 1)
+        self.assertEqual(len(cur.lineup_list), 2)
 
     async def test_leave_challenge_restores_world(self) -> None:
         req = pb.StartChallengeCsReq(
@@ -441,26 +452,68 @@ class ChallengeHandlersTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(self.session.challenge)
         kinds = [type(message).__name__ for message in self.sent]
         self.assertNotIn("ChallengeSettleNotify", kinds)
+        # In-place 下半: group refresh (unload node1 / load node2) + lineup switch,
+        # never a new SceneInfo (that is what black-screened the 4.6.54 battle).
         self.assertEqual(
             kinds[-3:],
             [
+                "SceneGroupRefreshScNotify",
                 "ChallengeLineupNotify",
                 "SyncLineupNotify",
-                "EnterSceneByServerScNotify",
             ],
         )
+        node1 = self.rt.endgame.challenge(1101).node1
         node2 = self.rt.endgame.challenge(1101).node2
         self.assertEqual(self.session.challenge.stage, 2)
         self.assertTrue(self.session.challenge.second)
         self.assertEqual(self.session.challenge.stage_id, node2.stage_id)
         self.assertEqual(self.session.challenge.node.entrance_id, node2.entrance_id)
-        scene = self.sent[-1].scene
-        self.assertEqual(scene.entry_id, node2.entrance_id)
-        lineup_notify = self.sent[-3]
+        refresh = self.sent[-3]
+        by_group = {entry.group_id: entry for entry in refresh.group_refresh_list}
+        self.assertIn(node2.maze_group_id, by_group)
+        self.assertIn(node1.maze_group_id, by_group)
+        added = [
+            item.add_entity
+            for item in by_group[node2.maze_group_id].refresh_entity
+            if item.HasField("add_entity")
+        ]
+        self.assertTrue(added)
+        self.assertEqual(added[0].npc_monster.event_id, node2.stage_id)
+        deleted = [
+            item.delete_entity
+            for item in by_group[node1.maze_group_id].refresh_entity
+            if item.HasField("delete_entity")
+        ]
+        self.assertTrue(deleted)
+        lineup_notify = self.sent[-2]
         self.assertEqual(
             lineup_notify.extra_lineup_type,
             pb.ExtraLineupType.ExtraLineupType_LineupChallenge2,
         )
+
+    async def test_stale_first_half_result_is_ignored_after_advance(self) -> None:
+        """A duplicate 上半 result must not settle the 下半."""
+        await challenge_handlers.on_start_challenge(
+            self.session,
+            pb.StartChallengeCsReq(
+                challenge_id=1101, avatar_lineup_first=self._lineup(1506, 1501)
+            ),
+        )
+        battle = await scene_handlers.on_cast_skill(
+            self.session, pb.SceneCastSkillCsReq(cast_entity_id=1)
+        )
+        first = pb.PVEBattleResultCsReq(
+            battle_id=battle.battle_info.battle_id,
+            stage_id=battle.battle_info.stage_id,
+            end_status=pb.BattleEndStatus.Value("BATTLE_END_WIN"),
+        )
+        await battle_handlers.on_pve_result(self.session, first)
+        self.assertEqual(self.session.challenge.stage, 2)
+        self.sent.clear()
+        await battle_handlers.on_pve_result(self.session, first)
+        kinds = [type(message).__name__ for message in self.sent]
+        self.assertNotIn("ChallengeSettleNotify", kinds)
+        self.assertEqual(self.session.challenge.stage, 2)
 
     async def test_second_half_result_settles(self) -> None:
         """After 下半 the run settles and LeaveChallenge returns to the lobby."""

@@ -449,6 +449,176 @@ def lobby_groups(props) -> list[pb.SceneEntityGroupInfo]:
     ]
 
 
+def _challenge_entities(
+    session,
+    *,
+    group,
+    group_id: int,
+    monster_id: int,
+    stage_id: int,
+    pos: tuple[int, int, int],
+    rot: tuple[int, int, int],
+) -> tuple[list[pb.SceneEntityInfo], int]:
+    """NPC monster + props of one challenge maze group.
+
+    The config's monster/event ids override the **first** NPC in the group (that
+    is the trigger monster; see pearl-sr ``addChallengeEntities``).  When the
+    group has no monster (rare maps), one NPC is placed at ``pos`` so the player
+    always has something to hit.  Returns ``(entities, monster_entity_id)``.
+    """
+    world_level = int(session.runtime.cfg.player.world_level)
+    entities: list[pb.SceneEntityInfo] = []
+    monster_entity_id = 0
+    next_entity_id = CHALLENGE_ENTITY_BASE
+
+    if group is not None:
+        for index, monster in enumerate(group.monsters):
+            entities.append(
+                _npc_entity(
+                    group_id=int(group_id),
+                    inst_id=monster.inst_id,
+                    entity_id=next_entity_id,
+                    monster_id=monster_id if index == 0 and monster_id else monster.monster_id,
+                    event_id=stage_id if index == 0 and stage_id else monster.event_id,
+                    world_level=world_level,
+                    pos=monster.pos,
+                    rot=monster.rot,
+                )
+            )
+            if index == 0:
+                monster_entity_id = next_entity_id
+            next_entity_id += 1
+        for prop in group.props:
+            entities.append(
+                _prop_entity(
+                    group_id=int(group_id),
+                    inst_id=prop.inst_id,
+                    entity_id=next_entity_id,
+                    prop_id=prop.prop_id,
+                    prop_state=prop.prop_state,
+                    pos=prop.pos,
+                    rot=prop.rot,
+                )
+            )
+            next_entity_id += 1
+
+    if not monster_entity_id:
+        entities.insert(
+            0,
+            _npc_entity(
+                group_id=int(group_id),
+                inst_id=CHALLENGE_FALLBACK_INST,
+                entity_id=next_entity_id,
+                monster_id=monster_id,
+                event_id=stage_id,
+                world_level=world_level,
+                pos=pos,
+                rot=rot,
+            ),
+        )
+        monster_entity_id = next_entity_id
+    return entities, monster_entity_id
+
+
+def swap_challenge_group(
+    session,
+    *,
+    group_id: int,
+    monster_id: int,
+    stage_id: int,
+    avatars: list[int] | None = None,
+) -> tuple[pb.SceneGroupRefreshScNotify, int]:
+    """Replace the arena's maze group in place (上半 -> 下半).
+
+    Reference behaviour (DanhengServer ``ChallengeMemoryInstance.AdvanceStage``,
+    LunarCore ``ChallengeInstance.advanceStage``): the client stays in the same
+    scene; the server unloads ``MazeGroupID1``, loads ``MazeGroupID2`` and sends
+    ``SceneGroupRefreshScNotify``.  Rebuilding a whole ``SceneInfo`` instead makes
+    the client lose its arena/battle-area binding — that is the 4.6.54 下半黑屏.
+
+    The player's field avatars are refreshed too (下半 has another team).
+    Returns ``(notify, monster_entity_id)``.
+    """
+    runtime = session.runtime
+    state = session.scene
+    spec = runtime.endgame.scene(state.plane_id)
+    group = spec.groups.get(int(group_id)) if spec is not None else None
+
+    anchor = runtime.endgame.anchor(state.entry_id)
+    if anchor:
+        pos = (int(anchor.get("x", 0)), int(anchor.get("y", 0)), int(anchor.get("z", 0)))
+        rot = (int(anchor.get("rx", 0)), int(anchor.get("ry", 0)), int(anchor.get("rz", 0)))
+    elif group is not None and group.monsters:
+        pos = group.monsters[0].pos
+        rot = (0, 0, 0)
+    else:
+        pos = state.position
+        rot = (0, 0, 0)
+
+    entities, monster_entity_id = _challenge_entities(
+        session,
+        group=group,
+        group_id=int(group_id),
+        monster_id=monster_id,
+        stage_id=stage_id,
+        pos=pos,
+        rot=rot,
+    )
+
+    team = list(avatars) if avatars else [slot for slot in session.lineup.slots if slot]
+    team_size = getattr(runtime.cfg.world, "team_size", 4)
+    refreshes: list[pb.GroupRefreshInfo] = [
+        pb.GroupRefreshInfo(
+            group_id=int(runtime.cfg.world.avatar_group_id),
+            state=0,
+            refresh_type=pb.SceneGroupRefreshType.SCENE_GROUP_REFRESH_TYPE_LOADED,
+            refresh_entity=[
+                pb.SceneEntityRefreshInfo(delete_entity=slot + 1) for slot in range(team_size)
+            ]
+            + [
+                pb.SceneEntityRefreshInfo(add_entity=entity)
+                for entity in avatar_entities(session, team)
+            ],
+        )
+    ]
+    for old_group in state.extra_groups:
+        refreshes.append(
+            pb.GroupRefreshInfo(
+                group_id=int(old_group.group_id),
+                state=0,
+                refresh_type=pb.SceneGroupRefreshType.SCENE_GROUP_REFRESH_TYPE_LOADED,
+                refresh_entity=[
+                    pb.SceneEntityRefreshInfo(delete_entity=entity.entity_id)
+                    for entity in old_group.entity_list
+                ],
+            )
+        )
+    refreshes.append(
+        pb.GroupRefreshInfo(
+            group_id=int(group_id),
+            state=1,
+            refresh_type=pb.SceneGroupRefreshType.SCENE_GROUP_REFRESH_TYPE_LOADED,
+            refresh_entity=[
+                pb.SceneEntityRefreshInfo(add_entity=entity) for entity in entities
+            ],
+        )
+    )
+
+    state.extra_groups = (
+        [pb.SceneEntityGroupInfo(group_id=int(group_id), state=1, entity_list=entities)]
+        if entities
+        else []
+    )
+    state.position = pos
+    state.client_pos_version += 1
+    notify = pb.SceneGroupRefreshScNotify(
+        floor_id=state.floor_id,
+        dimension_id=state.dimension_id,
+        group_refresh_list=refreshes,
+    )
+    return notify, monster_entity_id
+
+
 def build_challenge_scene(
     session,
     *,
@@ -516,60 +686,15 @@ def build_challenge_scene(
         if item.get("name")
     }
 
-    world_level = int(runtime.cfg.player.world_level)
-    entities: list[pb.SceneEntityInfo] = []
-    monster_entity_id = 0
-    next_entity_id = CHALLENGE_ENTITY_BASE
-
-    if group is not None:
-        for index, monster in enumerate(group.monsters):
-            entities.append(
-                _npc_entity(
-                    group_id=int(group_id),
-                    inst_id=monster.inst_id,
-                    entity_id=next_entity_id,
-                    monster_id=monster_id if index == 0 and monster_id else monster.monster_id,
-                    event_id=stage_id if index == 0 and stage_id else monster.event_id,
-                    world_level=world_level,
-                    pos=monster.pos,
-                    rot=monster.rot,
-                )
-            )
-            if index == 0:
-                monster_entity_id = next_entity_id
-            next_entity_id += 1
-        for prop in group.props:
-            entities.append(
-                _prop_entity(
-                    group_id=int(group_id),
-                    inst_id=prop.inst_id,
-                    entity_id=next_entity_id,
-                    prop_id=prop.prop_id,
-                    prop_state=prop.prop_state,
-                    pos=prop.pos,
-                    rot=prop.rot,
-                )
-            )
-            next_entity_id += 1
-
-    if not monster_entity_id:
-        # Fallback: keep the config's monster at the anchor so the fight is still
-        # reachable even if res.json does not describe this maze group.
-        entities.insert(
-            0,
-            _npc_entity(
-                group_id=int(group_id),
-                inst_id=CHALLENGE_FALLBACK_INST,
-                entity_id=next_entity_id,
-                monster_id=monster_id,
-                event_id=stage_id,
-                world_level=world_level,
-                pos=pos,
-                rot=rot,
-            ),
-        )
-        monster_entity_id = next_entity_id
-        next_entity_id += 1
+    entities, monster_entity_id = _challenge_entities(
+        session,
+        group=group,
+        group_id=int(group_id),
+        monster_id=monster_id,
+        stage_id=stage_id,
+        pos=pos,
+        rot=rot,
+    )
 
     groups = [
         pb.SceneEntityGroupInfo(

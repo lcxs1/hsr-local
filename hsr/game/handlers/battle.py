@@ -143,21 +143,16 @@ async def on_pve_result(session: Session, req: pb.PVEBattleResultCsReq) -> pb.PV
         # stays in the arena and respawns the monster forever.
         await session.send(rsp)
         if won and challenge_service.can_advance(session):
-            # 上半 cleared and the config has a 下半: load node2 instead of
-            # settling, and move the lineup to LineupChallenge2.
-            scene = challenge_service.advance_stage(session)
-            lineup = challenge_service.lineup_info(session)
+            # 上半 cleared and the config has a 下半: swap the maze group in
+            # place and move the lineup to LineupChallenge2 (DanhengServer
+            # AdvanceStage / LunarCore advanceStage).  No SceneInfo rebuild — the
+            # client keeps its arena binding and renders the second fight.
+            refresh, lineup = challenge_service.advance_stage(session)
+            await session.send(refresh)
             await session.send(
                 pb.ChallengeLineupNotify(extra_lineup_type=lineup.extra_lineup_type)
             )
             await session.send(pb.SyncLineupNotify(lineup=lineup))
-            await session.send(
-                pb.EnterSceneByServerScNotify(
-                    reason=pb.EnterSceneReason.Value("ENTER_SCENE_REASON_NONE"),
-                    lineup=lineup,
-                    scene=scene,
-                )
-            )
             return None
         await session.send(challenge_service.settle_notify(session, win=won))
         return None

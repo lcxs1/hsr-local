@@ -11,7 +11,7 @@ from hsr.config import ROOT, AppConfig
 from hsr.game.lua import LuaConsole
 from hsr.game.router import Router
 from hsr.game.services.battle import BattleData
-from hsr.game.services.endgame import EndgameData
+from hsr.game.services.endgame import EndgameData, latest_index
 from hsr.game.services.prefs import PrefsStore
 from hsr.game.services.progress import ProgressBook
 from hsr.game.services.roster import Roster
@@ -103,7 +103,11 @@ class Runtime:
             cfg.paths.resolve(cfg.paths.battle),
             cfg.paths.resolve(cfg.paths.stages),
         )
-        endgame = EndgameData.load(cfg.paths.resolve(cfg.paths.endgame), logger)
+        endgame = EndgameData.load(
+            cfg.paths.resolve(cfg.paths.endgame),
+            logger,
+            seasons_path=latest_index(cfg.data_dir),
+        )
         skins = SkinBook.load(cfg.paths.resolve(cfg.paths.skins), logger)
 
         logger.info(

@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 from hsr.game.services.battle import StageInfo
@@ -46,6 +47,33 @@ def mode_of(challenge_id: int) -> str:
     if challenge_id < 30000:
         return PF
     return AS
+
+
+@dataclass
+class Season:
+    """One rotation of an endgame mode (from the srtools index).
+
+    ``data/endgame.json`` only knows group ids; the vendor index
+    (``scripts/import_srtools.py``) adds the season name and its window, which is
+    how the server decides *which* group is the current one (1036 = 物竞天择 on
+    2026-11-11, 1037 = 漆黑残响 from 2026-12-14).
+    """
+
+    group_id: int = 0
+    mode: str = MOC
+    name: str = ""
+    begin: datetime | None = None
+    end: datetime | None = None
+
+    def covers(self, at: datetime) -> bool:
+        return self.begin is not None and self.end is not None and self.begin <= at <= self.end
+
+
+def latest_index(data_dir: str | Path) -> Path | None:
+    """Newest ``data/vendor/srtools-*/endgame_index.json``, or None."""
+    vendor = Path(data_dir) / "vendor"
+    candidates = sorted(vendor.glob("srtools-*/endgame_index.json"))
+    return candidates[-1] if candidates else None
 
 
 # --------------------------------------------------------------------- models
@@ -172,6 +200,16 @@ def _vec(raw: dict | None) -> tuple[int, int, int]:
     return (int(raw.get("x", 0)), int(raw.get("y", 0)), int(raw.get("z", 0)))
 
 
+def _time(value) -> datetime | None:
+    """``"2026-11-02 04:00:00"`` -> datetime; anything unparsable -> None."""
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+
+
 def _node(raw: dict | None) -> ChallengeNode | None:
     if not raw:
         return None
@@ -194,6 +232,8 @@ class EndgameData:
     scenes: dict[int, SceneSpec] = field(default_factory=dict)
     # Lobby planes (忘却之庭大厅): plane id -> entry id -> props/monsters.
     lobbies: dict[int, dict[int, list[SceneProp]]] = field(default_factory=dict)
+    # Rotation metadata per group id (vendor index; empty when it is not there).
+    seasons: dict[int, Season] = field(default_factory=dict)
 
     floors: dict[int, list[dict]] = field(default_factory=dict)
     anchors: dict[int, dict] = field(default_factory=dict)
@@ -207,7 +247,12 @@ class EndgameData:
 
     # ------------------------------------------------------------------- load
     @classmethod
-    def load(cls, path: str | Path, logger: logging.Logger | None = None) -> EndgameData:
+    def load(
+        cls,
+        path: str | Path,
+        logger: logging.Logger | None = None,
+        seasons_path: str | Path | None = None,
+    ) -> EndgameData:
         log_ = logger or log
         data = cls()
         try:
@@ -218,6 +263,8 @@ class EndgameData:
             return data
 
         data.source = str(path)
+        if seasons_path is not None:
+            data._load_seasons(Path(seasons_path), log_)
         for key, value in (raw.get("challenges") or {}).items():
             node1 = _node(value.get("node1"))
             if node1 is None:
@@ -365,6 +412,37 @@ class EndgameData:
         return data
 
     # ---------------------------------------------------------------- helpers
+    def _load_seasons(self, path: Path, logger: logging.Logger) -> None:
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError) as exc:
+            logger.warning("failed to load season index (%s): %s", path, exc)
+            return
+        for mode, block in (raw.get("modes") or {}).items():
+            for group in block.get("groups") or []:
+                group_id = int(group.get("id", 0) or 0)
+                if not group_id:
+                    continue
+                self.seasons[group_id] = Season(
+                    group_id=group_id,
+                    mode=str(mode),
+                    name=str(group.get("name", "")),
+                    begin=_time(group.get("begin")),
+                    end=_time(group.get("end")),
+                )
+        logger.info("seasons loaded: %d groups from %s", len(self.seasons), path.name)
+
+    def season(self, group_id: int) -> Season | None:
+        return self.seasons.get(int(group_id))
+
+    def active_group(self, mode: str, at: datetime | None = None) -> int:
+        """Group id of the rotation covering ``at`` (default: now), or 0."""
+        now = at or datetime.now()
+        for season in self.seasons.values():
+            if season.mode == mode and season.covers(now):
+                return season.group_id
+        return 0
+
     def challenge(self, challenge_id: int) -> Challenge | None:
         return self.challenges.get(int(challenge_id))
 

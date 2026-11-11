@@ -68,6 +68,26 @@ class PathSettings(BaseModel):
         return p if p.is_absolute() else (ROOT / p)
 
 
+class EndgameSettings(BaseModel):
+    """终局玩法口径（AGENTS.md §5 的 A 模拟器口径，默认）。
+
+    ``moc_group_id``: 混沌回忆用哪一组（一组 = 一期 12/10 层）。
+    ``0`` = 按 ``data/vendor/srtools-*/endgame_index.json`` 的 ``BeginTime/EndTime``
+    自动选“当前赛季”；写死数字则强制用那一组。
+
+    ``unlock_all``: true = 所有层按满星下发（客户端视为可选、可重打，pearl-sr 做法）；
+    false = 没通关历史就发 0 星（会锁住后面的层，等 M3 历史落库后再用）。
+
+    ``group_list`` / ``send_max_level`` 只是 M0 真机探针开关（一次只改一个），
+    用来验证“忘却之庭第三张卡”到底吃什么数据；默认保持现状。
+    """
+
+    moc_group_id: int = 0
+    unlock_all: bool = True
+    group_list: Literal["all", "rewards"] = "all"
+    send_max_level: bool = False
+
+
 class PlayerSettings(BaseModel):
     uid: int = 10001
     name: str = "Trailblazer"
@@ -242,6 +262,7 @@ class AppConfig(BaseModel):
     player: PlayerSettings = Field(default_factory=PlayerSettings)
     world: WorldSettings = Field(default_factory=WorldSettings)
     gameplay: GameplaySettings = Field(default_factory=GameplaySettings)
+    endgame: EndgameSettings = Field(default_factory=EndgameSettings)
     features: FeatureSettings = Field(default_factory=FeatureSettings)
     experiments: ExperimentSettings = Field(default_factory=ExperimentSettings)
 

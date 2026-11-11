@@ -155,21 +155,28 @@ def clear(session) -> None:
     session.battle_info = None
 
 
-def lineup_info(session) -> pb.LineupInfo:
+def lineup_info(session, second: bool | None = None) -> pb.LineupInfo:
     """Challenge ``LineupInfo`` (extra_lineup_type=Challenge/Challenge2).
 
-    Uses the lineup the client picked in ``StartChallengeCsReq`` (state.avatars)
-    and falls back to the open-world lineup when no ids were sent.
+    ``second`` picks the 下半 team (``state.second_avatars``); default follows the
+    half currently being played.  Falls back to the open-world lineup when the
+    client sent no ids.
     """
     state = session.challenge
     runtime = session.runtime
     roster = runtime.roster
-    avatars = list(state.avatars) if state is not None else []
+    if second is None:
+        second = bool(state is not None and state.second)
+    avatars: list[int] = []
+    if state is not None:
+        avatars = list(state.second_avatars if second else state.first_avatars)
+        if not avatars:
+            avatars = list(state.avatars)
     if not avatars:
         avatars = [slot for slot in session.lineup.slots if slot]
     extra_lineup_type = (
         pb.ExtraLineupType.ExtraLineupType_LineupChallenge2
-        if state is not None and state.second
+        if second
         else pb.ExtraLineupType.ExtraLineupType_LineupChallenge
     )
     lineup = pb.LineupInfo(
@@ -202,6 +209,24 @@ def lineup_info(session) -> pb.LineupInfo:
             )
         )
     return lineup
+
+
+def lineups(session) -> list[pb.LineupInfo]:
+    """Lineup list for Start/GetCur responses.
+
+    ``StageNum >= 2`` carries **both** teams: DanhengServer and LunarCore do the
+    same for the same field, and with only the current team the client has no
+    avatars to render the other half — the 4.6.54 symptom is a black battle
+    screen that still simulates and settles by itself.
+    """
+    state = getattr(session, "challenge", None)
+    first = lineup_info(session, second=False)
+    if state is None:
+        return [first]
+    challenge = session.runtime.endgame.challenge(state.challenge_id)
+    if challenge is None or challenge.node2 is None:
+        return [first]
+    return [first, lineup_info(session, second=True)]
 
 
 def cur_challenge(session, *, finished: bool | None = None) -> pb.CurChallenge:
@@ -274,18 +299,64 @@ def can_advance(session) -> bool:
     return challenge is not None and challenge.node2 is not None
 
 
-def advance_stage(session) -> pb.SceneInfo:
-    """Switch the active attempt to 下半 (node2) and return the new scene.
+def advance_stage(session) -> tuple[pb.SceneGroupRefreshScNotify, pb.LineupInfo]:
+    """Switch the active attempt to 下半 (node2) **in place**.
 
-    Mirrors DanhengServer ``ChallengeMemoryInstance.AdvanceStage``: swap the
-    maze group for the second node's, move the extra lineup to
-    ``LineupChallenge2`` and keep the original return target so
-    ``LeaveChallenge`` still lands in the lobby.
+    Mirrors DanhengServer ``ChallengeMemoryInstance.AdvanceStage`` and LunarCore
+    ``ChallengeInstance.advanceStage``: unload ``MazeGroupID1``, load
+    ``MazeGroupID2`` in the same scene, move the lineup to ``LineupChallenge2``.
+    Returns ``(scene_group_refresh, lineup)`` for the handler to send.
+
+    Why not rebuild a ``SceneInfo``: the client is already inside the arena and
+    keeps its battle-area binding; handing it a fresh scene (new entry/entities)
+    is what produced the 4.6.54 下半黑屏 — the battle still simulates and then
+    settles itself.
     """
     state = session.challenge
     challenge = session.runtime.endgame.challenge(state.challenge_id)
     node = challenge.node2
     # 下半是另一套队伍：优先用客户端在队伍配置里给的 second lineup。
+    team = list(state.second_avatars) or list(state.avatars)
+    notify, monster_entity_id = scene_service.swap_challenge_group(
+        session,
+        group_id=node.maze_group_id,
+        monster_id=node.monster_id,
+        stage_id=node.stage_id,
+        avatars=team,
+    )
+    state.node = node
+    state.stage_id = node.stage_id
+    state.monster_entity_id = monster_entity_id
+    state.second = True
+    state.stage = 2
+    state.avatars = team
+    # 下半是新一场战斗：清掉上半的 battle id。留着会让迟到的上半结果
+    # 通过 ``req.battle_id in challenge.battle_ids`` 被当成有效结果而提前结算。
+    state.battle_id = 0
+    state.battle_ids.clear()
+    session.battle_info = None
+    session.runtime.logger.info(
+        "challenge advance: id=%d mode=%s -> stage=2 group=%d stage_id=%d team=%s",
+        state.challenge_id,
+        state.mode,
+        node.maze_group_id,
+        node.stage_id,
+        team,
+    )
+    return notify, lineup_info(session, second=True)
+
+
+
+def enter_second_half(session) -> pb.SceneInfo:
+    """Client-driven 下半: the client re-sent ``StartChallenge`` with only the
+    second lineup (pearl-sr flow) and expects a fresh ``SceneInfo``.
+
+    The server-driven auto-advance uses :func:`advance_stage` instead, which swaps
+    the maze group in place.
+    """
+    state = session.challenge
+    challenge = session.runtime.endgame.challenge(state.challenge_id)
+    node = challenge.node2
     team = list(state.second_avatars) or list(state.avatars)
     scene, monster_entity_id = scene_service.build_challenge_scene(
         session,
@@ -304,11 +375,11 @@ def advance_stage(session) -> pb.SceneInfo:
     state.second = True
     state.stage = 2
     state.avatars = team
-    # The second node is a new fight: drop the finished battle but keep the id
-    # history so a late result for the first half is still recognised.
+    state.battle_id = 0
+    state.battle_ids.clear()
     session.battle_info = None
     session.runtime.logger.info(
-        "challenge advance: id=%d mode=%s -> stage=2 scene=%d/%d entry=%d stage=%d team=%s",
+        "challenge enter second half: id=%d mode=%s scene=%d/%d entry=%d stage=%d team=%s",
         state.challenge_id,
         state.mode,
         node.plane_id,
@@ -318,7 +389,6 @@ def advance_stage(session) -> pb.SceneInfo:
         team,
     )
     return scene
-
 
 
 def rounds_limit(mode: str) -> int:

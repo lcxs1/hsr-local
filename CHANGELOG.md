@@ -4,6 +4,7 @@
 
 ## 2026-11-11
 
+- 混沌回忆 A 口径 M1（[design/04](docs/design/04-混沌回忆模拟器口径.md)）：`StartChallengeScRsp`/`GetCurChallenge` 回**两套阵容**（Danheng/LunarCore 同做法）；上半→下半改为**原地换组**（`scene.swap_challenge_group` 发 `SceneGroupRefreshScNotify`，不再重建 `SceneInfo`）；下半清空 `battle_ids` 防止重复上半结果提前结算；新增 `[endgame]` 配置（`moc_group_id=0` 按赛季时间自动选期、`unlock_all`、两个真机探针开关）。195 单测 + 全量回归绿，待真机。
 - 新增 `docs/design/04-混沌回忆模拟器口径.md`：按 A 口径重做混沌回忆的计划（任意层可选、上下半双队原地换组、卡片三假设探针、M0–M4 里程碑）。
   依据：用户要求参考其他工程重做模拟器口径，先出计划；对照 DanhengServer/LunarCore 发现「两套阵容回包 + 下半原地换组」是缺失项。
 - 新增 `scripts/import_srtools.py` + `data/vendor/srtools-20261111/`：从 srtools 公开数据 API 拉终局表（期名、`BeginTime/EndTime`、每半场全部 stage、target/分数）。结论：id 与旧表 843 条完全一致、无缺期；**当前赛季 = MOC 1036「物竞天择」(11-02~12-14) / PF 2027「取象为文」/ AS 3021「支配遗忘」**；130 条 MOC 上半其实有 2 个 stage（旧实现只取最后一个）。
