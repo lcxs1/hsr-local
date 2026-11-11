@@ -739,5 +739,102 @@ class ChallengeHandlersTest(unittest.IsolatedAsyncioTestCase):
 
 
 
+    async def test_tierce_start_enters_first_node(self) -> None:
+        """4.7.0 星启模式：三套队伍 + stage_index=0 回节点一的场景。
+
+        真机 2026-11-11 21:05：混沌回忆第 12 层编队界面点「混沌回忆」，
+        客户端发 ``StartChallengeTierceCsReq``（93 字节、三套阵容），服务端没
+        实现 → 按钮点了没反应。这里锁住协议字段与状态。
+        """
+        rsp = await challenge_handlers.on_start_challenge_tierce(
+            self.session,
+            pb.StartChallengeTierceCsReq(
+                challenge_id=5512,
+                stage_index=0,
+                lineup_tierce_list=[
+                    pb.LineupTierce(tierce_avatar_id_list=self._lineup(1506, 1501)),
+                    pb.LineupTierce(tierce_avatar_id_list=self._lineup(1502, 1503)),
+                    pb.LineupTierce(tierce_avatar_id_list=self._lineup(1201, 1202)),
+                ],
+            ),
+        )
+        self.assertEqual(rsp.retcode, 0)
+        self.assertEqual(rsp.cur_tierce_challenge.challenge_id, 5512)
+        self.assertEqual(rsp.cur_tierce_challenge.stage_index, 0)
+        self.assertEqual(len(rsp.cur_tierce_challenge.lineup_list), 3)
+        state = self.session.challenge
+        self.assertTrue(state.tierce)
+        self.assertEqual(len(state.tierce_teams), 3)
+        self.assertEqual(state.stage_index, 0)
+        self.assertEqual(rsp.scene.plane_id, state.node.plane_id)
+
+        # 第二、第三个节点：场景换成 node2（我们的表只有两个节点）。
+        first_group = state.node.maze_group_id
+
+        async def win_current_node() -> None:
+            battle = await scene_handlers.on_cast_skill(
+                self.session, pb.SceneCastSkillCsReq(cast_entity_id=1)
+            )
+            await battle_handlers.on_pve_result(
+                self.session,
+                pb.PVEBattleResultCsReq(
+                    battle_id=battle.battle_info.battle_id,
+                    stage_id=battle.battle_info.stage_id,
+                    end_status=pb.BattleEndStatus.Value("BATTLE_END_WIN"),
+                ),
+            )
+
+        self.assertTrue(challenge_service.can_advance(self.session))
+        await win_current_node()
+        self.assertNotIn(
+            "ChallengeSettleNotify",
+            [type(message).__name__ for message in self.sent],
+        )
+        self.assertEqual(state.stage_index, 1)
+        self.assertNotEqual(state.node.maze_group_id, first_group)
+        # 第三节点打完才结算。
+        self.assertTrue(challenge_service.can_advance(self.session))
+        await win_current_node()
+        self.assertEqual(state.stage_index, 2)
+        self.assertFalse(challenge_service.can_advance(self.session))
+        await win_current_node()
+        self.assertIn(
+            "ChallengeSettleNotify",
+            [type(message).__name__ for message in self.sent],
+        )
+
+    async def test_tierce_unknown_id(self) -> None:
+        rsp = await challenge_handlers.on_start_challenge_tierce(
+            self.session,
+            pb.StartChallengeTierceCsReq(
+                challenge_id=999999,
+                lineup_tierce_list=[
+                    pb.LineupTierce(tierce_avatar_id_list=self._lineup(1506))
+                ],
+            ),
+        )
+        self.assertEqual(rsp.retcode, 1)
+        self.assertIsNone(self.session.challenge)
+
+    async def test_tierce_leave_returns_to_world(self) -> None:
+        await challenge_handlers.on_start_challenge_tierce(
+            self.session,
+            pb.StartChallengeTierceCsReq(
+                challenge_id=5512,
+                lineup_tierce_list=[
+                    pb.LineupTierce(tierce_avatar_id_list=self._lineup(1506, 1501))
+                ],
+            ),
+        )
+        rsp = await challenge_handlers.on_leave_challenge_tierce(
+            self.session, pb.LeaveChallengeTierceCsReq()
+        )
+        self.assertEqual(rsp.retcode, 0)
+        self.assertIsNone(self.session.challenge)
+        names = [type(message).__name__ for message in self.sent]
+        self.assertIn("QuitBattleScNotify", names)
+        self.assertIn("EnterSceneByServerScNotify", names)
+
+
 if __name__ == "__main__":
     unittest.main()

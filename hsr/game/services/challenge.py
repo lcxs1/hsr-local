@@ -59,6 +59,13 @@ class ChallengeState:
     first_avatars: list[int] = field(default_factory=list)
     second_avatars: list[int] = field(default_factory=list)
 
+    # 4.7.0「星启模式」：一层 = 3 个节点、3 套队伍，协议是 ``StartChallengeTierce``
+    # （混沌回忆 12 层的编队界面就是它）。``stage_index`` 是当前节点（0/1/2），
+    # ``tierce_teams`` 是客户端一次下发的三套阵容。
+    tierce: bool = False
+    stage_index: int = 0
+    tierce_teams: list[list[int]] = field(default_factory=list)
+
     stage_id: int = 0
     monster_entity_id: int = 0
     battle_id: int = 0
@@ -152,13 +159,91 @@ def enter(
 
 
 
+def enter_tierce(
+    session,
+    challenge_id: int,
+    *,
+    stage_index: int = 0,
+    teams: list[list[int]] | None = None,
+    buff_ids: list[int] | None = None,
+) -> tuple[ChallengeState, pb.SceneInfo]:
+    """4.7.0「星启模式」进节点：一层 3 个节点，每个节点一套队伍。
+
+    客户端在编队界面点「混沌回忆」后发 ``StartChallengeTierceCsReq``（挑战 id +
+    ``stage_index`` + 三套 ``lineup_tierce_list``），服务端回 ``scene`` +
+    ``cur_tierce_challenge``。我们的关卡表每层只导出到 node2，所以第三个节点
+    复用 node2 的场景；A 口径只要求「点得进、打得完、结算掉」。
+    """
+    runtime = session.runtime
+    challenge = runtime.endgame.challenge(challenge_id)
+    if challenge is None:
+        raise ValueError(f"unknown challenge id {challenge_id}")
+    node = challenge.node(second=int(stage_index) >= 1)
+    teams = [[int(avatar_id) for avatar_id in team if avatar_id] for team in (teams or [])]
+    pick = 0 if not teams else min(max(int(stage_index), 0), len(teams) - 1)
+    team = teams[pick] if teams else []
+    previous = (session.scene.plane_id, session.scene.floor_id, session.scene.entry_id)
+    scene, monster_entity_id = scene_service.build_challenge_scene(
+        session,
+        plane_id=node.plane_id,
+        floor_id=node.floor_id,
+        entry_id=node.entrance_id,
+        world_id=node.world_id,
+        group_id=node.maze_group_id,
+        monster_id=node.monster_id,
+        stage_id=node.stage_id,
+        avatars=team or None,
+    )
+    state = ChallengeState(
+        challenge_id=challenge.id,
+        mode=challenge.mode,
+        node=node,
+        second=int(stage_index) >= 1,
+        tierce=True,
+        stage_index=int(stage_index),
+        tierce_teams=teams,
+        buff_ids=list(
+            buff_ids
+            if buff_ids is not None
+            else ([challenge.buff_id] if challenge.buff_id else [])
+        ),
+        avatars=team,
+        first_avatars=list(teams[0]) if teams else [],
+        second_avatars=(
+            list(teams[1]) if len(teams) > 1 else (list(teams[0]) if teams else [])
+        ),
+        stage_id=node.stage_id,
+        monster_entity_id=monster_entity_id,
+        return_plane_id=int(previous[0]),
+        return_floor_id=int(previous[1]),
+        return_entry_id=int(previous[2]),
+    )
+    session.challenge = state
+    runtime.logger.info(
+        "challenge tierce entered: id=%d mode=%s stage_index=%d teams=%s"
+        " scene=%d/%d entry=%d stage=%d monster=%d",
+        state.challenge_id,
+        state.mode,
+        state.stage_index,
+        teams,
+        node.plane_id,
+        node.floor_id,
+        node.entrance_id,
+        state.stage_id,
+        state.monster_entity_id,
+    )
+    return state, scene
+
+
 def clear(session) -> None:
     """Drop the active challenge (battle included)."""
     session.challenge = None
     session.battle_info = None
 
 
-def lineup_info(session, second: bool | None = None) -> pb.LineupInfo:
+def lineup_info(
+    session, second: bool | None = None, *, index: int | None = None
+) -> pb.LineupInfo:
     """Challenge ``LineupInfo`` (extra_lineup_type=Challenge/Challenge2).
 
     ``second`` picks the 下半 team (``state.second_avatars``); default follows the
@@ -168,10 +253,20 @@ def lineup_info(session, second: bool | None = None) -> pb.LineupInfo:
     state = session.challenge
     runtime = session.runtime
     roster = runtime.roster
+    tierce = bool(state is not None and state.tierce and state.tierce_teams)
+    if tierce:
+        pick = state.stage_index if index is None else index
+        pick = min(max(int(pick), 0), len(state.tierce_teams) - 1)
+        if second is None:
+            second = pick >= 1
     if second is None:
         second = bool(state is not None and state.second)
     avatars: list[int] = []
-    if state is not None:
+    if tierce:
+        avatars = list(state.tierce_teams[pick])
+        if not avatars:
+            avatars = list(state.avatars)
+    elif state is not None:
         avatars = list(state.second_avatars if second else state.first_avatars)
         if not avatars:
             avatars = list(state.avatars)
@@ -229,6 +324,9 @@ def lineups(session) -> list[pb.LineupInfo]:
     first = lineup_info(session, second=False)
     if state is None:
         return [first]
+    if state.tierce and state.tierce_teams:
+        # 星启模式：三套队伍一起下发，客户端按节点渲染编队。
+        return [lineup_info(session, index=index) for index in range(len(state.tierce_teams))]
     challenge = session.runtime.endgame.challenge(state.challenge_id)
     if challenge is None or challenge.node2 is None:
         return [first]
@@ -299,10 +397,62 @@ def can_advance(session) -> bool:
     throws the player out (guide/03 §3.26).
     """
     state = getattr(session, "challenge", None)
-    if state is None or state.second:
+    if state is None:
+        return False
+    if state.tierce:
+        # 星启模式：三套队伍 = 三个节点，最后一个节点打完才结算。
+        return state.stage_index + 1 < max(len(state.tierce_teams), 2)
+    if state.second:
         return False
     challenge = session.runtime.endgame.challenge(state.challenge_id)
     return challenge is not None and challenge.node2 is not None
+
+
+def advance_tierce(session) -> pb.SceneInfo:
+    """星启模式进下一个节点：重建该节点的 ``SceneInfo``。
+
+    客户端对 ``StartChallengeTierce`` 只回一次场景，节点之间和我们的
+    ``advance = "scene"`` 一样靠 ``EnterSceneByServerScNotify`` 推。
+    """
+    state = session.challenge
+    challenge = session.runtime.endgame.challenge(state.challenge_id)
+    next_index = int(state.stage_index) + 1
+    node = challenge.node(second=next_index >= 1)
+    pick = min(next_index, len(state.tierce_teams) - 1) if state.tierce_teams else 0
+    team = list(state.tierce_teams[pick]) if state.tierce_teams else list(state.avatars)
+    scene, monster_entity_id = scene_service.build_challenge_scene(
+        session,
+        plane_id=node.plane_id,
+        floor_id=node.floor_id,
+        entry_id=node.entrance_id,
+        world_id=node.world_id,
+        group_id=node.maze_group_id,
+        monster_id=node.monster_id,
+        stage_id=node.stage_id,
+        avatars=team or None,
+    )
+    state.node = node
+    state.stage_index = next_index
+    state.stage = next_index + 1
+    state.second = next_index >= 1
+    state.stage_id = node.stage_id
+    state.monster_entity_id = monster_entity_id
+    state.avatars = team
+    state.battle_id = 0
+    state.battle_ids.clear()
+    session.battle_info = None
+    session.runtime.logger.info(
+        "challenge tierce advance: id=%d stage_index=%d scene=%d/%d entry=%d"
+        " stage=%d team=%s",
+        state.challenge_id,
+        state.stage_index,
+        node.plane_id,
+        node.floor_id,
+        node.entrance_id,
+        state.stage_id,
+        team,
+    )
+    return scene
 
 
 def advance_scene(session) -> pb.SceneInfo:

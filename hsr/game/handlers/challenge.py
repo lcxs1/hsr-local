@@ -337,6 +337,57 @@ async def on_start_challenge(
     )
 
 
+async def on_start_challenge_tierce(
+    session: Session, req: pb.StartChallengeTierceCsReq
+) -> pb.StartChallengeTierceScRsp:
+    """4.7.0「星启模式」开打：一层 3 个节点、一次下发 3 套队伍。
+
+    混沌回忆第 12 层的编队界面走的就是这条（4.7.0 真机：点「混沌回忆」按钮
+    客户端发 ``StartChallengeTierceCsReq``，服务端没实现 → 按钮没反应）。
+    """
+    runtime = session.runtime
+    challenge = runtime.endgame.challenge(req.challenge_id)
+    if challenge is None:
+        runtime.logger.warning(
+            "start challenge tierce: unknown id %d", req.challenge_id
+        )
+        return pb.StartChallengeTierceScRsp(retcode=1)
+    teams = [
+        [
+            runtime.roster.base_id(int(avatar.id))
+            for avatar in entry.tierce_avatar_id_list
+            if avatar.id
+        ]
+        for entry in req.lineup_tierce_list
+    ]
+    buff_ids = [int(entry.buff_id) for entry in req.lineup_tierce_list if entry.buff_id]
+    challenge_service.clear(session)
+    state, scene = challenge_service.enter_tierce(
+        session,
+        challenge.id,
+        stage_index=int(req.stage_index),
+        teams=teams,
+        buff_ids=buff_ids or None,
+    )
+    runtime.logger.info(
+        "start challenge tierce: id=%d (%s) stage_index=%d teams=%s buffs=%s",
+        challenge.id,
+        MODE_LABEL.get(challenge.mode, challenge.mode),
+        state.stage_index,
+        teams,
+        state.buff_ids,
+    )
+    return pb.StartChallengeTierceScRsp(
+        retcode=0,
+        scene=scene,
+        cur_tierce_challenge=pb.CurTierceChallenge(
+            challenge_id=challenge.id,
+            stage_index=state.stage_index,
+            lineup_list=challenge_service.lineups(session),
+        ),
+    )
+
+
 async def on_get_cur_challenge(
     session: Session, req: pb.GetCurChallengeCsReq
 ) -> pb.GetCurChallengeScRsp:
@@ -406,11 +457,21 @@ async def on_take_cumulative_reward(
     return pb.TakeChallengeCumulativeRewardScRsp(retcode=0, group_id=req.group_id)
 
 
+async def on_leave_challenge_tierce(
+    session: Session, req: pb.LeaveChallengeTierceCsReq
+) -> pb.LeaveChallengeTierceScRsp:
+    """星启模式退出：和普通挑战一样回世界/大厅，只换回包类型。"""
+    rsp = await on_leave_challenge(session, pb.LeaveChallengeCsReq())
+    return pb.LeaveChallengeTierceScRsp(retcode=rsp.retcode)
+
+
 def register(router: Router) -> None:
     router.add("GetChallengeCsReq", on_get_challenge)
     router.add("GetChallengeGroupStatisticsCsReq", on_challenge_group_statistics)
     router.add("StartChallengeCsReq", on_start_challenge)
+    router.add("StartChallengeTierceCsReq", on_start_challenge_tierce)
     router.add("GetCurChallengeCsReq", on_get_cur_challenge)
     router.add("LeaveChallengeCsReq", on_leave_challenge)
+    router.add("LeaveChallengeTierceCsReq", on_leave_challenge_tierce)
     router.add("TakeChallengeCumulativeRewardCsReq", on_take_cumulative_reward)
 

@@ -99,7 +99,10 @@ async def _enter_second_half(session: Session) -> None:
     * ``none``    — only the result ack; the client must send ``StartChallenge``
       itself (pearl flow), handled in ``on_start_challenge``.
     """
-    mode = session.runtime.cfg.endgame.advance
+    state = getattr(session, "challenge", None)
+    tierce = bool(state is not None and getattr(state, "tierce", False))
+    # 星启模式没有"上下半"一说：节点之间一律重建 SceneInfo，refresh 只对 node1→node2 有意义。
+    mode = "scene" if tierce else session.runtime.cfg.endgame.advance
     if mode == "none":
         session.runtime.logger.info("challenge advance: skipped (advance=none)")
         return
@@ -111,8 +114,12 @@ async def _enter_second_half(session: Session) -> None:
         )
         await session.send(pb.SyncLineupNotify(lineup=lineup))
         return
-    scene = challenge_service.advance_scene(session)
-    lineup = challenge_service.lineup_info(session, second=True)
+    scene = (
+        challenge_service.advance_tierce(session)
+        if tierce
+        else challenge_service.advance_scene(session)
+    )
+    lineup = challenge_service.lineup_info(session)
     await session.send(
         pb.ChallengeLineupNotify(extra_lineup_type=lineup.extra_lineup_type)
     )

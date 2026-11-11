@@ -4,6 +4,8 @@
 
 ## 2026-11-11
 
+- 4.7.0「星启模式」协议落地（[design/04 §5.2](docs/design/04-混沌回忆模拟器口径.md)）：实现 `StartChallengeTierceCsReq`（cmd 8986）/`LeaveChallengeTierceCsReq`（cmd 8987）。一层 = 3 个节点、客户端一次下发 3 套 `lineup_tierce_list`；`ChallengeState` 加 `tierce/stage_index/tierce_teams`，新增 `challenge_service.enter_tierce`/`advance_tierce`（节点间重建 `SceneInfo`），第 3 个节点打完才 `ChallengeSettleNotify`。修「混沌回忆第 12 层编队点『混沌回忆』按钮没反应」。76 handlers、全量 `check.ps1` 绿，待真机。
+  依据：真机 `packets.log` 显示客户端连发 5 次 `StartChallengeTierceCsReq (cmd 8986) 93 bytes`、服务端记 unhandled，按钮才没反应。
 - 4.7.0 真机第 1 轮：三张终局卡片（混沌回忆/虚构叙事/末日幻影）在 4.7.0 **自动解锁**；大厅传送仍卡在与 4.6.54 **同一个** `MapNPC:227-400001`（`MapNpcDef.get_ConfigEntityPath` NRE），确定是客户端资源问题、服务端补不了。下一轮绕开大厅走「星际和平指南 → 混沌回忆」面板，`lobby_props` 改 `crystals` 做对照。写入 `design/04 §5.2`、`reference/05 §5.2`。
   依据：用户 4.7.0 真机反馈 + `Player.log` 栈；解锁门槛被证伪后不再在服务端猜解锁条件。
 
