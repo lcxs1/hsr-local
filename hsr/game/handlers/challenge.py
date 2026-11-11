@@ -347,7 +347,8 @@ async def on_start_challenge_tierce(
     """
     runtime = session.runtime
     challenge = runtime.endgame.challenge(req.challenge_id)
-    if challenge is None:
+    tierce_stage = runtime.endgame.tierce_stage(req.challenge_id)
+    if challenge is None and tierce_stage is None:
         runtime.logger.warning(
             "start challenge tierce: unknown id %d", req.challenge_id
         )
@@ -364,15 +365,15 @@ async def on_start_challenge_tierce(
     challenge_service.clear(session)
     state, scene = challenge_service.enter_tierce(
         session,
-        challenge.id,
+        req.challenge_id,
         stage_index=int(req.stage_index),
         teams=teams,
         buff_ids=buff_ids or None,
     )
     runtime.logger.info(
         "start challenge tierce: id=%d (%s) stage_index=%d teams=%s buffs=%s",
-        challenge.id,
-        MODE_LABEL.get(challenge.mode, challenge.mode),
+        req.challenge_id,
+        MODE_LABEL.get(state.mode, state.mode),
         state.stage_index,
         teams,
         state.buff_ids,
@@ -381,7 +382,7 @@ async def on_start_challenge_tierce(
         retcode=0,
         scene=scene,
         cur_tierce_challenge=pb.CurTierceChallenge(
-            challenge_id=challenge.id,
+            challenge_id=req.challenge_id,
             stage_index=state.stage_index,
             lineup_list=challenge_service.lineups(session),
         ),

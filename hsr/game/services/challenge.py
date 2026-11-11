@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from hsr.game.services import battle as battle_service
 from hsr.game.services import lineup as lineup_service
 from hsr.game.services import scene as scene_service
-from hsr.game.services.endgame import AS, PF, ChallengeNode
+from hsr.game.services.endgame import AS, MOC, PF, ChallengeNode
 from hsr.protocol.gen import StarRail_pb2 as pb
 
 # 客户端认的触发战斗类型（pearl-sr 对所有挑战目标都用 TRIGGER_BATTLE）。
@@ -65,6 +65,8 @@ class ChallengeState:
     tierce: bool = False
     stage_index: int = 0
     tierce_teams: list[list[int]] = field(default_factory=list)
+    # 星启模式的三个节点（见 ``tierce_nodes``）。
+    tierce_nodes: list = field(default_factory=list)
 
     stage_id: int = 0
     monster_entity_id: int = 0
@@ -159,6 +161,50 @@ def enter(
 
 
 
+def tierce_nodes(session, challenge_id: int) -> list[ChallengeNode] | None:
+    """星启模式（4.7.0「混沌回忆」最后一层）的三个节点。
+
+    客户端发的 id 是 ``tierce`` 表里的行（真机：第 12 层发 **5513**，比普通过关
+    行 5512 大 1）。这一行只带自己的场景（entrance/plane/group/monster/stage）
+    和 ``pre_challenge_id``（= 5512），所以三个节点拼成：
+
+    1. ``pre_challenge.node1``（上半）；
+    2. ``pre_challenge.node2``（下半）；
+    3. tierce 行自己（红底的「污染等级 3」节点）。
+
+    没有 ``pre_challenge`` 数据时三个节点都用 tierce 行，保证一样能打。
+    """
+    data = session.runtime.endgame
+    stage = data.tierce_stage(challenge_id)
+    if stage is None:
+        challenge = data.challenge(challenge_id)
+        if challenge is None:
+            return None
+        # 普通两层挑战被星启协议点开：按 node1/node2 合成三节点。
+        second = challenge.node2 or challenge.node1
+        return [challenge.node1, second, second]
+    third = ChallengeNode(
+        entrance_id=stage.entrance_id,
+        plane_id=stage.plane_id,
+        floor_id=stage.floor_id,
+        world_id=stage.world_id,
+        maze_group_id=stage.maze_group_id,
+        monster_id=stage.monster_id,
+        stage_id=stage.stage_id,
+    )
+    nodes: list[ChallengeNode] = []
+    pre = data.challenge(stage.pre_challenge_id) if stage.pre_challenge_id else None
+    if pre is not None:
+        nodes.append(pre.node1)
+        if pre.node2 is not None:
+            nodes.append(pre.node2)
+    if not nodes:
+        nodes.append(third)
+    while len(nodes) < 3:
+        nodes.append(third)
+    return nodes[:3]
+
+
 def enter_tierce(
     session,
     challenge_id: int,
@@ -171,17 +217,27 @@ def enter_tierce(
 
     客户端在编队界面点「混沌回忆」后发 ``StartChallengeTierceCsReq``（挑战 id +
     ``stage_index`` + 三套 ``lineup_tierce_list``），服务端回 ``scene`` +
-    ``cur_tierce_challenge``。我们的关卡表每层只导出到 node2，所以第三个节点
-    复用 node2 的场景；A 口径只要求「点得进、打得完、结算掉」。
+    ``cur_tierce_challenge``。节点数据见 :func:`tierce_nodes`。
     """
     runtime = session.runtime
-    challenge = runtime.endgame.challenge(challenge_id)
-    if challenge is None:
+    nodes = tierce_nodes(session, challenge_id)
+    if not nodes:
         raise ValueError(f"unknown challenge id {challenge_id}")
-    node = challenge.node(second=int(stage_index) >= 1)
+    index = max(int(stage_index), 0)
+    pick = min(index, len(nodes) - 1)
+    node = nodes[pick]
+    challenge = runtime.endgame.challenge(challenge_id)
+    stage = runtime.endgame.tierce_stage(challenge_id)
+    mode = challenge.mode if challenge is not None else MOC
+    buff = 0
+    if challenge is not None:
+        buff = challenge.buff_id
+    elif stage is not None and stage.pre_challenge_id:
+        pre = runtime.endgame.challenge(stage.pre_challenge_id)
+        buff = pre.buff_id if pre is not None else 0
     teams = [[int(avatar_id) for avatar_id in team if avatar_id] for team in (teams or [])]
-    pick = 0 if not teams else min(max(int(stage_index), 0), len(teams) - 1)
-    team = teams[pick] if teams else []
+    team_pick = 0 if not teams else min(index, len(teams) - 1)
+    team = teams[team_pick] if teams else []
     previous = (session.scene.plane_id, session.scene.floor_id, session.scene.entry_id)
     scene, monster_entity_id = scene_service.build_challenge_scene(
         session,
@@ -195,18 +251,15 @@ def enter_tierce(
         avatars=team or None,
     )
     state = ChallengeState(
-        challenge_id=challenge.id,
-        mode=challenge.mode,
+        challenge_id=challenge_id,
+        mode=mode,
         node=node,
-        second=int(stage_index) >= 1,
+        second=index >= 1,
         tierce=True,
-        stage_index=int(stage_index),
+        stage_index=index,
         tierce_teams=teams,
-        buff_ids=list(
-            buff_ids
-            if buff_ids is not None
-            else ([challenge.buff_id] if challenge.buff_id else [])
-        ),
+        tierce_nodes=nodes,
+        buff_ids=list(buff_ids if buff_ids is not None else ([buff] if buff else [])),
         avatars=team,
         first_avatars=list(teams[0]) if teams else [],
         second_avatars=(
@@ -220,11 +273,12 @@ def enter_tierce(
     )
     session.challenge = state
     runtime.logger.info(
-        "challenge tierce entered: id=%d mode=%s stage_index=%d teams=%s"
+        "challenge tierce entered: id=%d mode=%s stage_index=%d/%d teams=%s"
         " scene=%d/%d entry=%d stage=%d monster=%d",
         state.challenge_id,
         state.mode,
         state.stage_index,
+        len(nodes),
         teams,
         node.plane_id,
         node.floor_id,
@@ -400,8 +454,8 @@ def can_advance(session) -> bool:
     if state is None:
         return False
     if state.tierce:
-        # 星启模式：三套队伍 = 三个节点，最后一个节点打完才结算。
-        return state.stage_index + 1 < max(len(state.tierce_teams), 2)
+        # 星启模式：三个节点，最后一个节点打完才结算。
+        return state.stage_index + 1 < max(len(state.tierce_nodes), 2)
     if state.second:
         return False
     challenge = session.runtime.endgame.challenge(state.challenge_id)
@@ -415,11 +469,16 @@ def advance_tierce(session) -> pb.SceneInfo:
     ``advance = "scene"`` 一样靠 ``EnterSceneByServerScNotify`` 推。
     """
     state = session.challenge
-    challenge = session.runtime.endgame.challenge(state.challenge_id)
+    nodes = list(state.tierce_nodes) or tierce_nodes(session, state.challenge_id) or []
     next_index = int(state.stage_index) + 1
-    node = challenge.node(second=next_index >= 1)
-    pick = min(next_index, len(state.tierce_teams) - 1) if state.tierce_teams else 0
-    team = list(state.tierce_teams[pick]) if state.tierce_teams else list(state.avatars)
+    pick = min(next_index, len(nodes) - 1) if nodes else 0
+    node = nodes[pick] if nodes else state.node
+    team_pick = (
+        min(next_index, len(state.tierce_teams) - 1) if state.tierce_teams else 0
+    )
+    team = (
+        list(state.tierce_teams[team_pick]) if state.tierce_teams else list(state.avatars)
+    )
     scene, monster_entity_id = scene_service.build_challenge_scene(
         session,
         plane_id=node.plane_id,

@@ -836,5 +836,35 @@ class ChallengeHandlersTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("EnterSceneByServerScNotify", names)
 
 
+    async def test_tierce_real_awakening_id_5513(self) -> None:
+        """真机 4.7.0：客户端发的星启 id 是 ``tierce`` 表的行（5513 = 5512 + 1）。
+
+        三个节点 = 5512 的上半 / 5512 的下半 / tierce 行自己（污染等级 3）。
+        """
+        rsp = await challenge_handlers.on_start_challenge_tierce(
+            self.session,
+            pb.StartChallengeTierceCsReq(
+                challenge_id=5513,
+                stage_index=0,
+                lineup_tierce_list=[
+                    pb.LineupTierce(tierce_avatar_id_list=self._lineup(1506, 1501)),
+                    pb.LineupTierce(tierce_avatar_id_list=self._lineup(1502, 1503)),
+                    pb.LineupTierce(tierce_avatar_id_list=self._lineup(1201, 1202)),
+                ],
+            ),
+        )
+        self.assertEqual(rsp.retcode, 0)
+        self.assertEqual(rsp.cur_tierce_challenge.challenge_id, 5513)
+        state = self.session.challenge
+        self.assertEqual(state.mode, "MOC")
+        groups = [node.maze_group_id for node in state.tierce_nodes]
+        stages = [node.stage_id for node in state.tierce_nodes]
+        self.assertEqual(len(groups), 3)
+        # 节点三 = tierce 行自己的 stage（30126123，污染 boss）。
+        self.assertEqual(stages[2], 30126123)
+        self.assertNotEqual(stages[0], stages[2])
+        self.assertEqual(rsp.scene.plane_id, state.node.plane_id)
+
+
 if __name__ == "__main__":
     unittest.main()
