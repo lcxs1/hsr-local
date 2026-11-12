@@ -1154,10 +1154,18 @@ def battle_info(session) -> pb.SceneBattleInfo:
         info.monster_wave_list.append(
             pb.SceneMonsterWave(
                 battle_wave_id=index + 1,
+                # 官方每个波次都带 battle_stage_id（= 该半场的 stage）：抓包 #563 是
+                # 30126011、#658 是 30126012。少它时客户端可能拿不到战斗场景，表现为
+                # 进场动画之后黑屏、几秒后自己判赢。
+                battle_stage_id=int(state.stage_id),
                 monster_param=pb.SceneMonsterWaveParam(level=stage.level),
                 monster_list=[pb.SceneMonster(monster_id=mid) for mid in wave],
+                # 官方每个怪都跟一条空的 ItemList（NMGIABHIJJB），条数与 monster_list 相同。
+                NMGIABHIJJB=[pb.ItemList() for _ in wave],
             )
         )
+    # 官方 battle_info 里 EDCFKACPFNB（字段名 FGOAKDCBIOE）是“存在但为空”，跟着置上。
+    info.FGOAKDCBIOE.SetInParent()
     info.battle_avatar_list.extend(
         battle_service.build_battle_avatars(session, avatars=state.avatars or None)
     )

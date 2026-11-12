@@ -4,6 +4,9 @@
 
 ## 2026-11-12
 
+- **下半黑屏第二轮：换半场真机确认通过，战斗包按抓包补齐 wave 字段**：真机（`test-20261112-185701`）证明 `advance=official` 生效——`challenge advance (official) … packets=10` 之后 2.9 s 客户端就对下半的怪发出 `SceneCastSkillCsReq`，`GetSceneMapInfo` / `GetCurChallenge` 顺序与官方 #605-#609 一致（以前所有模式都是 0 cast）。失败点换了位置：下半**战斗本身**进场动画后黑屏 9 s、客户端自己判 WON（`battle stats turns=0`；同一套代码上半是 `turns=2 cost=17s`）。对齐官方 `SceneCastSkillScRsp`（#563/#658）补三处：`SceneMonsterWave.battle_stage_id = 本半场 stage`、每个怪一条空 `ItemList`（`NMGIABHIJJB`）、`battle_info.FGOAKDCBIOE` 空子消息（`EDCFKACPFNB`）。另修 `scripts/game_test.ps1` 的 `advance` 事件规则（漏了 `official`，上一轮报告把「阶段切换」误判成未发生、下半 cast 计 0）。240 单测 + check.ps1 绿；真机待复验，失败判据与仍存差异写进 [抓包方案 §11](docs/notes/2026-11-12-正式服抓包方案.md)。
+  依据：`logs/test/test-20261112-185701.*`（服务端日志 + packets + 截图 14-17）+ 官方抓包 #563/#658 逐字段 diff。
+
 - **混沌回忆换半场改成逐包照抄正式服：新增 `[endgame] advance = "official"` 并设为默认**：按抓包 §8 重写换半场——原地删上半的怪（`refresh_type=3`）→ 换场上角色实体（删旧 id + 加新 id）→ 3×`SyncLineupNotify` → `ChallengeLineupNotify` → 用 `group_info` 声明下半的组 → 移动通知，10 个包**全在 `PVEBattleResultScRsp` 之前**；不重建场景、不发 `SyncServerSceneChangeNotify` / `EnterSceneByServerScNotify`。配套 `scene.avatar_base`（场上角色实体基座，换半场 +4）+ `scene.leader_entity_id()`（`SceneInfo.leader_entity_id` / 走位包 / `SceneEntityMoveCsReq` 的队长判定都跟着基座走）、`scene.GROUP_REFRESH_REFRESH`（type 3）、`declared_group_notify(state=…)`（官方 `group_info.state` 留空）、`move_notify(entity_id=…)`（官方不带 entity_id）。故意不照抄的两处（挑战 buff 包、官方实体 id）写在 [§11](docs/notes/2026-11-12-正式服抓包方案.md)。**240 单测 + 回放（`advance="official"` 逐包断言）绿，真机未验**；验证不通过先改回 `advance = "sync"`。
   依据：docs/notes/2026-11-12-正式服抓包方案 §8/§9/§11 + `tools/captures/official-20261112-1727`（`dump_frames.py` 解出的 #592-#604 原文）；用户要求直接动手。
 

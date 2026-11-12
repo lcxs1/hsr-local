@@ -885,6 +885,17 @@ class ChallengeHandlersTest(unittest.IsolatedAsyncioTestCase):
             [avatar.id for avatar in second_battle.battle_info.battle_avatar_list],
             state.avatars,
         )
+        # 战斗包要带官方的 wave 形状（#658）：battle_stage_id = 本半场 stage、
+        # 每个怪一条空 ItemList、EDCFKACPFNB 子消息存在但为空。
+        waves = second_battle.battle_info.monster_wave_list
+        self.assertEqual(
+            [wave.battle_stage_id for wave in waves], [node2.stage_id] * len(waves)
+        )
+        self.assertEqual(
+            [len(wave.NMGIABHIJJB) for wave in waves],
+            [len(wave.monster_list) for wave in waves],
+        )
+        self.assertTrue(second_battle.battle_info.HasField("FGOAKDCBIOE"))
 
     async def test_advance_declare_uses_group_info_not_entity_patch(self) -> None:
         """``advance=declare``：原地**声明**下一个迷宫组，不推场景、不重载 stage。
