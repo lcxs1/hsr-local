@@ -1,10 +1,10 @@
-"""缺 hotfix 条目时向官方网关取一次（AGENTS.md §10 受限例外）。
+"""缺 hotfix 条目时向官方网关取一次。
 
 移植自 sr-recover-new ``src/dispatch/dispatchserver.py::check_hotfix``：按版本串
 前缀选官方域名，把客户端**自己**的 ``query_gateway`` 查询串原样转发过去，解析
 返回的 ``GateServer``，取 7 个 CDN 字段缓存进 ``data/hotfix.json``。
 
-AGENTS.md §10 把允许范围限定死了，本模块负责执行这些约束：
+本模块负责执行这些约束：
 
 * 只 ``GET /query_gateway``，只发客户端上报过的参数，不带账号凭据、不伪造 uid；
 * 直连并绕过本机代理：Clash TUN 会把域名解析成 fake-ip，走代理必失败；

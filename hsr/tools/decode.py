@@ -14,6 +14,8 @@ import struct
 from pathlib import Path
 
 from hsr.config import ROOT
+from hsr.net.frame import FrameError
+from hsr.net.frame import parse as parse_frame
 from hsr.protocol import codec
 from hsr.protocol.dynamic import DynamicPool
 from hsr.protocol.registry import Registry
@@ -35,10 +37,12 @@ def read_capture(path: Path):
         raw = data[pos : pos + length]
         pos += length
         index += 1
-        if len(raw) < 16 or raw[:4] != HEAD_MAGIC or raw[-4:] != TAIL_MAGIC:
+        # frame.parse 会校验魔数/长度/尾部，避免 body 被静默截断。
+        try:
+            frame = parse_frame(raw)
+        except FrameError:
             continue
-        cmd, head_len, body_len = struct.unpack_from(">HHI", raw, 4)
-        yield index, direction, cmd, raw[12 : 12 + head_len], raw[12 + head_len : 12 + head_len + body_len]
+        yield index, direction, frame.cmd, frame.head, frame.body
 
 
 def decode_one(registry: Registry, pool: DynamicPool, cmd: int, body: bytes) -> str:
@@ -57,7 +61,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--cmd", type=int, help="decode a single cmd with --hex")
     ap.add_argument("--hex", help="hex body for --cmd")
     ap.add_argument("--list", action="store_true", help="only list frames")
-    ap.add_argument("--full", action="store_true", help="decode every frame (implies --full)")
+    ap.add_argument("--full", action="store_true", help="decode full message bodies (default: list frames only)")
     ap.add_argument("--limit", type=int, default=0, help="max frames to print")
     args = ap.parse_args(argv)
 

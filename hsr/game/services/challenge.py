@@ -139,6 +139,8 @@ class ChallengeState:
     rounds_left: int = 0
     # 本半场开始时的剩余轮次：客户端「重打本半场」要回退到这里。
     phase_start_rounds: int = 0
+    # 本半场开始时的阵亡人数：重打本半场时一起回退，避免跨重试累积虚高。
+    phase_start_dead_avatars: int = 0
     dead_avatars: int = 0
     # 当前阶段实际发出的 battle id（客户端可能回一个更早的 id，见 battle_info）。
     battle_id: int = 0
@@ -314,6 +316,7 @@ def _apply_phase_scene(session, state: ChallengeState) -> pb.SceneInfo:
     session.battle_info = None
     # 进入某个阶段时的轮次预算（跨半场共用；重打本半场回退到这里）。
     state.phase_start_rounds = int(state.rounds_left)
+    state.phase_start_dead_avatars = int(state.dead_avatars)
     return scene
 
 
@@ -362,6 +365,7 @@ def enter(
         rounds_left=_rounds_for(challenge.mode, challenge.countdown),
     )
     state.phase_start_rounds = int(state.rounds_left)
+    state.phase_start_dead_avatars = int(state.dead_avatars)
     _remember_return(session, state)
     session.challenge = state
     scene = _apply_phase_scene(session, state)
@@ -420,6 +424,7 @@ def enter_tierce(
         rounds_left=DEFAULT_ROUNDS,
     )
     state.phase_start_rounds = int(state.rounds_left)
+    state.phase_start_dead_avatars = int(state.dead_avatars)
     _remember_return(session, state)
     session.challenge = state
     scene = _apply_phase_scene(session, state)
@@ -811,6 +816,7 @@ def _advance_declare(session, state: ChallengeState, phase: Phase) -> Transition
     state.battle_ids.clear()
     session.battle_info = None
     state.phase_start_rounds = int(state.rounds_left)
+    state.phase_start_dead_avatars = int(state.dead_avatars)
     session.runtime.logger.info(
         "challenge advance (declare): id=%d phase=%d->%d group=%d entities=%d"
         " stage=%d team=%s",
@@ -888,6 +894,7 @@ def advance(session, *, mode: str | None = None) -> Transition:
     session.battle_info = None
     # 新半场的轮次预算 = 此刻剩余（跨半场共用）；重打本半场时回退到这里。
     state.phase_start_rounds = int(state.rounds_left)
+    state.phase_start_dead_avatars = int(state.dead_avatars)
     session.runtime.logger.info(
         "challenge advance (inplace): id=%d phase=%d->%d group=%d stage=%d team=%s",
         state.challenge_id,
@@ -997,12 +1004,13 @@ def battle_info(session) -> pb.SceneBattleInfo:
     battle_id = runtime.battle.next_battle_id(session)
     # 轮次预算跨半场共用（参考实现 `battle.RoundLimit = Data.Memory.RoundsLeft`）：
     # 上半用掉的轮次不能在下半再给一遍，否则下半 HUD 的「剩余轮次」会跳回满值。
-    remaining = int(state.rounds_left or 0)
+    # remaining 已是 0 时也必须保持 0/1，不能回退到 rounds_limit(mode) 的满值。
+    remaining = max(0, int(state.rounds_left or 0))
     info = pb.SceneBattleInfo(
         battle_id=battle_id,
         world_level=runtime.cfg.player.world_level,
         stage_id=state.stage_id,
-        rounds_limit=max(1, remaining) if remaining else rounds_limit(state.mode),
+        rounds_limit=max(1, remaining),
         logic_random_seed=secrets.randbits(32) or 123456789,
         # 字段 7 在 4.6.54 descriptor 里被混淆成 JAOIOKBBMFC，实为
         # monster_wave_length（对照 pearl-sr protocol.pb.zig:28008）。pearl 每次都填；

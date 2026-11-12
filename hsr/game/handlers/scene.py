@@ -20,6 +20,11 @@ if TYPE_CHECKING:
     from hsr.net.session import Session
 
 
+# 客户端一次最多要几层地图信息；单场景服务端只有一层。上限挡住畸形包塞数百万个
+# identifier、逼服务器构造海量 SceneMapInfo 的放大攻击。
+_MAX_SCENE_MAP_INFO = 64
+
+
 async def on_get_cur_scene(
     session: Session, req: pb.GetCurSceneInfoCsReq
 ) -> pb.GetCurSceneInfoScRsp:
@@ -35,7 +40,12 @@ async def on_scene_map_info(
 ) -> pb.GetSceneMapInfoScRsp:
     # The client may ask about several floors at once (e.g. the map screen);
     # we only have one, so answer with the same floor for every identifier.
-    count = max(1, len(req.scene_identifiers))
+    requested = len(req.scene_identifiers)
+    count = min(max(1, requested), _MAX_SCENE_MAP_INFO)
+    if requested > count:
+        session.runtime.logger.warning(
+            "scene map info clamped: %d identifiers -> %d", requested, count
+        )
     return pb.GetSceneMapInfoScRsp(
         scene_map_info=[scene_service.build_map_info(session) for _ in range(count)]
     )
@@ -347,12 +357,6 @@ async def on_enter_scene(session: Session, req: pb.EnterSceneCsReq) -> pb.EnterS
         floor_id,
     )
     return None
-
-
-    return pb.EnterSceneScRsp(
-        is_close_map=req.is_close_map,
-        scene_identifier=state.identifier,
-    )
 
 
 async def on_unlock_teleport(

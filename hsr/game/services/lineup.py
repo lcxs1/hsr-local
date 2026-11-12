@@ -29,7 +29,11 @@ class LineupState:
     # 上次变动/恢复的时间（time.monotonic），心跳驱动的定时恢复用它计时
     mp_updated_at: float = 0.0
 
-    def set_slot(self, slot: int, avatar_id: int) -> None:
+    def set_slot(self, slot: int, avatar_id: int, team_size: int = 4) -> None:
+        # slot 直接来自客户端包，必须钳制：负值会静默写 self.slots[-1]，
+        # 超大值会让 while 循环 append 数十亿个 0（OOM）。team_size 由 world.team_size 提供。
+        if not 0 <= slot < team_size:
+            raise ValueError(f"slot {slot} out of range [0, {team_size})")
         while len(self.slots) <= slot:
             self.slots.append(0)
         self.slots[slot] = avatar_id

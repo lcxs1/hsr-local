@@ -57,6 +57,11 @@ def main() -> None:
             f"  (网页「连接设置 → RobinSR → 连接 PS」，{watch})"
         )
     print(f"  kcp    {cfg.server.kcp_conv_mode}  unknown={cfg.server.unknown_mode}")
+    if not (
+        cfg.server.listen.startswith("127.")
+        or cfg.server.listen in ("::1", "localhost")
+    ):
+        print("  !! 非回环监听：/srtools、/admin、/debug 无鉴权，会被局域网暴露")
     print("=" * 64)
     print("  启动游戏前确认代理已把登录域名指向 127.0.0.1:21000")
     print("  Ctrl+C 退出")

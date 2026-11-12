@@ -23,7 +23,7 @@ Usage::
     .\.venv\Scripts\python.exe scripts\import_srtools.py --compare data\endgame.json
 
 ``--raw`` reuses already downloaded ``<name>.json`` files instead of fetching
-(they are verified against ``PROVENANCE.json`` when it exists).
+(它们**不**会对照 ``PROVENANCE.json`` 校验，该文件只被写出)。
 """
 
 from __future__ import annotations

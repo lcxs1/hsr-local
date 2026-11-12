@@ -520,9 +520,10 @@ async def on_restart_challenge_phase(
     state.battle_id = 0
     state.battle_ids.clear()
     session.battle_info = None
-    # 重打本半场：轮次预算回退到本半场开始时的值（参考实现“重打”语义）。
+    # 重打本半场：轮次预算与阵亡数都回退到本半场开始时的值（参考实现“重打”语义）。
     if state.phase_start_rounds:
         state.rounds_left = int(state.phase_start_rounds)
+    state.dead_avatars = int(state.phase_start_dead_avatars)
     scene = scene_service.build_challenge_scene(
         session,
         plane_id=state.node.plane_id,

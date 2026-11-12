@@ -152,10 +152,13 @@ def _validate(document: dict) -> freesr.FreesrData:
 # ----------------------------------------------------------------------- disk
 def _write(path: Path, document: dict) -> None:
     """Write with the same 4-space layout the site produces (atomic replace)."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(document, indent=4, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(path)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(json.dumps(document, indent=4, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(path)
+    except OSError as exc:
+        raise FreesrPayloadError(f"failed to write {path}: {exc}") from exc
 
 
 def _relic_uids(roster: Roster) -> set[int]:

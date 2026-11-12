@@ -259,6 +259,10 @@ def create_app(rt: Runtime) -> FastAPI:
                 {"ok": False, "error": f"unknown challenge {id}"}, status_code=404
             )
         state = session.challenge
+        if state is None:
+            return JSONResponse(
+                {"ok": False, "error": "challenge not entered"}, status_code=500
+            )
         # 探针（2026-11-11 真机）：只推 EnterSceneByServer 时客户端能进 arena、能走路，
         # 但**没有 HUD、不能攻击**——它只有在收到自己请求的 StartChallenge*ScRsp 时才
         # 建立“我在挑战中”的状态。这里把应答当主动包也发一遍，看能不能把 HUD 挂上。

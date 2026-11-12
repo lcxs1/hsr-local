@@ -69,7 +69,7 @@ class PathSettings(BaseModel):
 
 
 class EndgameSettings(BaseModel):
-    """终局玩法口径（AGENTS.md §5 的 A 模拟器口径，默认）。
+    """终局玩法口径（A 模拟器口径，默认）。
 
     ``moc_group_id``: 混沌回忆用哪一组（一组 = 一期 12/10 层）。
     ``0`` = 按 ``data/vendor/srtools-*/endgame_index.json`` 的 ``BeginTime/EndTime``
@@ -263,7 +263,7 @@ class FeatureSettings(BaseModel):
     # http://<listen>:<http_port>/cdn，按文件名回放客户端自己安装里的资源。
     # 只对带 LOCAL_CDN 条目的版本生效，4.6.54 不受影响。需要 [paths].client_dir。
     local_cdn: bool = False
-    # 缺 hotfix 条目时向官方网关取一次（AGENTS.md §10 受限例外，默认关闭）。
+    # 缺 hotfix 条目时向官方网关取一次（默认关闭）。
     hotfix_auto: bool = False
     # 默认直连并绕过本机代理；只有代理环境必然失败时才填中转地址（如社区代理）。
     hotfix_proxy: str = ""

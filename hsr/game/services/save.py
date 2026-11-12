@@ -12,6 +12,7 @@ and replay it as finished on the next login.
 from __future__ import annotations
 
 import json
+import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -92,15 +93,19 @@ class SaveStore:
         now = time.monotonic()
         if not force and (now - self._last_write) < self.interval:
             return
-        self._last_write = now
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.path.with_suffix(self.path.suffix + ".tmp")
-            tmp.write_text(
-                json.dumps(self.player.to_dict(), indent=2, ensure_ascii=False),
-                encoding="utf-8",
-            )
+            payload = json.dumps(self.player.to_dict(), indent=2, ensure_ascii=False)
+            # 先写临时文件并 fsync，再原子 replace：既不会写坏档，断电也不丢已写数据。
+            with open(tmp, "w", encoding="utf-8") as fh:
+                fh.write(payload)
+                fh.flush()
+                os.fsync(fh.fileno())
             tmp.replace(self.path)
+            # 只在真正写成功之后才推进节流时间戳；否则写失败后的 5 s 内会被
+            # 节流跳过，内存里的最新状态静默不落盘。
+            self._last_write = now
         except OSError as exc:
             log.warning("failed to write player save: %s", exc)
 

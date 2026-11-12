@@ -79,15 +79,13 @@ class Router:
 
         try:
             rsp = await fn(session, req)
-        except Exception:  # noqa: BLE001 - one bad handler must not kill the server
+            if rsp is not None:
+                await session.send(rsp)
+        except Exception:  # noqa: BLE001 - one bad handler/encode must not kill the server
             self.logger.exception("handler %s failed", req_name)
             pair = self.registry.empty_rsp_bytes(pkt.cmd)
             if pair:
                 await session.send_empty(pair[0])
-            return
-
-        if rsp is not None:
-            await session.send(rsp)
 
     async def _unknown(self, session: Session, pkt: Frame, name: str) -> None:
         first = pkt.cmd not in self.unknown_counts

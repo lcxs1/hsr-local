@@ -16,6 +16,14 @@ def _persist(session: Session) -> None:
     session.runtime.save.set_lineup(session.lineup.slots, session.lineup.leader)
 
 
+def _team_size(session: Session) -> int:
+    return int(getattr(session.runtime.cfg.world, "team_size", 4))
+
+
+def _valid_slot(session: Session, slot: int) -> bool:
+    return 0 <= int(slot) < _team_size(session)
+
+
 async def on_get_all(session: Session, req: pb.GetAllLineupDataCsReq) -> pb.GetAllLineupDataScRsp:
     return pb.GetAllLineupDataScRsp(
         cur_index=0,
@@ -39,15 +47,24 @@ async def on_get_avatar_data(
 
 async def on_replace(session: Session, req: pb.ReplaceLineupCsReq) -> pb.ReplaceLineupScRsp:
     roster = session.runtime.roster
+    team_size = _team_size(session)
     for slot_data in req.lineup_slot_list:
         avatar_id = int(slot_data.id)
         base = roster.base_id(avatar_id)
         if avatar_id and not roster.has_base(base):
             session.runtime.logger.warning("lineup replace ignored unknown avatar %d", avatar_id)
             continue
-        session.lineup.set_slot(slot_data.slot, base)
+        slot = int(slot_data.slot)
+        if not _valid_slot(session, slot):
+            session.runtime.logger.warning("lineup replace ignored out-of-range slot %d", slot)
+            continue
+        session.lineup.set_slot(slot, base, team_size)
     if req.leader_slot:
-        session.lineup.leader = req.leader_slot
+        leader = int(req.leader_slot)
+        if _valid_slot(session, leader):
+            session.lineup.leader = leader
+        else:
+            session.runtime.logger.warning("lineup replace ignored out-of-range leader %d", leader)
     _persist(session)
     await lineup_service.notify(session)
     return pb.ReplaceLineupScRsp()
@@ -57,9 +74,13 @@ async def on_join(session: Session, req: pb.JoinLineupCsReq) -> pb.JoinLineupScR
     roster = session.runtime.roster
     base = roster.base_id(int(req.base_avatar_id))
     if base and roster.has_base(base):
-        session.lineup.set_slot(req.slot, base)
-        _persist(session)
-        await lineup_service.notify(session)
+        slot = int(req.slot)
+        if not _valid_slot(session, slot):
+            session.runtime.logger.warning("lineup join ignored out-of-range slot %d", slot)
+        else:
+            session.lineup.set_slot(slot, base, _team_size(session))
+            _persist(session)
+            await lineup_service.notify(session)
     else:
         session.runtime.logger.warning("lineup join ignored unknown avatar %d", req.base_avatar_id)
     return pb.JoinLineupScRsp()
@@ -79,8 +100,12 @@ async def on_quit(session: Session, req: pb.QuitLineupCsReq) -> pb.QuitLineupScR
 async def on_change_leader(
     session: Session, req: pb.ChangeLineupLeaderCsReq
 ) -> pb.ChangeLineupLeaderScRsp:
-    session.lineup.leader = req.slot
-    _persist(session)
+    leader = int(req.slot)
+    if _valid_slot(session, leader):
+        session.lineup.leader = leader
+        _persist(session)
+    else:
+        session.runtime.logger.warning("change leader ignored out-of-range slot %d", leader)
     return pb.ChangeLineupLeaderScRsp(slot=req.slot)
 
 

@@ -184,7 +184,10 @@ class BattleData:
         start gets a new id (the first one still comes from ``battle.json``).
         """
         previous = int(getattr(session, "battle_seq", 0) or 0)
-        value = self.battle_id if previous <= 0 else previous + 1
+        # battle.json 的 battle_id 若被配成 0/负，首次会返回非法 id 且永不增长；
+        # 归一化到 >=1，保证「再来一次」能拿到递增的 id。
+        base = max(1, int(self.battle_id or 0))
+        value = base if previous <= 0 else previous + 1
         if value > 0xFFFFFFFF:
             value = 1
         session.battle_seq = value

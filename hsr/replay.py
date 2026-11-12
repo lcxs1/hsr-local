@@ -258,7 +258,7 @@ async def run_challenge_flow(
 
     with tempfile.TemporaryDirectory(prefix="hsr-replay-") as tmp:
         save = SaveStore(path=Path(tmp) / "player.json", player=copy.deepcopy(rt.save.player))
-        local = replace(rt, save=save)
+        local = replace(rt, save=save, cfg=copy.deepcopy(rt.cfg))
         local.cfg.endgame.advance = "sync"
         session = ReplaySession(local)
         result = ReplayResult()
@@ -331,7 +331,7 @@ async def run_challenge_flow(
         upper = await fight()
         _check(
             [avatar.id for avatar in upper.battle_info.battle_avatar_list]
-            == [local.roster.base_id(a) for a in first][: len(upper.battle_info.battle_avatar_list)],
+            == [local.roster.base_id(a) for a in first],
             "上半 battle uses the wrong team",
         )
         result.events.append("challenge_battle_1")
@@ -340,7 +340,10 @@ async def run_challenge_flow(
         await finish(upper)
         names = [type(message).__name__ for message in session.sent]
         _check("ChallengeSettleNotify" not in names, "上半 must not settle the run")
-        rsp_index = names.index("PVEBattleResultScRsp")
+        try:
+            rsp_index = names.index("PVEBattleResultScRsp")
+        except ValueError as exc:
+            raise ReplayError(f"advance did not ack the battle result: {names}") from exc
         _check(
             names[:rsp_index] == ["ChallengeLineupNotify", "SyncLineupNotify"],
             f"lineup switch must precede the result ack: {names}",
@@ -366,7 +369,7 @@ async def run_challenge_flow(
         _check(lower.battle_info.stage_id == challenge.node2.stage_id, "下半 stage mismatch")
         _check(
             [avatar.id for avatar in lower.battle_info.battle_avatar_list]
-            == [local.roster.base_id(a) for a in second][: len(lower.battle_info.battle_avatar_list)],
+            == [local.roster.base_id(a) for a in second],
             "下半 battle uses the wrong team",
         )
         result.battle_ids.extend([upper.battle_info.battle_id, lower.battle_info.battle_id])

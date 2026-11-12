@@ -797,7 +797,7 @@ class KCP:
             while size - pos >= IKCP_OVERHEAD:
                 try:
                     seg = IKCPSEG.decode(buf, pos)
-                except:
+                except Exception:
                     return
 
                 pos += seg.total_size()

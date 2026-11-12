@@ -53,7 +53,9 @@ def link_target(raw: str) -> str | None:
         target = target[1:-1]
     if not target or target.startswith("#"):
         return None
-    if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", target):
+    # 至少两个字符才算 scheme：单字母 + 冒号是 Windows 盘符（C:），不能当协议
+    # 跳过，否则下面「链接不要用绝对路径」的检查会漏掉盘符绝对路径。
+    if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]+:", target):
         return None  # http:, https:, mailto: ...
     target = target.split("#", 1)[0].split("?", 1)[0]
     if not target:

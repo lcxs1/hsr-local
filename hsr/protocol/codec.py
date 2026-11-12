@@ -21,6 +21,8 @@ def read_varint(data: bytes, pos: int) -> tuple[int, int]:
     result = 0
     shift = 0
     while True:
+        if pos >= len(data):
+            raise ValueError("truncated varint")
         byte = data[pos]
         pos += 1
         result |= (byte & 0x7F) << shift

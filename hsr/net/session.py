@@ -211,12 +211,12 @@ class Session:
                 pkt = await self.queue.get()
                 try:
                     await self.runtime.router.dispatch(self, pkt)
+                except Exception:  # noqa: BLE001 - one bad packet must not kill the worker
+                    log.exception("session worker error on cmd=%s", pkt.cmd)
                 finally:
                     self.queue.task_done()
         except asyncio.CancelledError:
             pass
-        except Exception:  # noqa: BLE001
-            log.exception("session worker crashed")
 
     # ----------------------------------------------------------------- send
     def send_frame(self, cmd: int, body: bytes = b"") -> None:
