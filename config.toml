@@ -103,8 +103,9 @@ unlock_all = true
 #   renumber = 删旧 id + 加新 id（官方抓包做法）
 #   reuse    = 删掉再用同一批 id 加回来
 #   skip     = 完全不动场上角色实体，只切阵容/迷宫组
-# 2026-11-12 19:34 真机：换 id 之后下半仍然进不去战斗，先改成 skip 做 A/B。
-avatar_swap = "skip"
+# 2026-11-12 19:41 真机 A/B：skip（不动角色实体）会卡死在进战斗，客户端根本没发
+# SceneCastSkillCsReq；renumber 至少能走到施放。所以保持 renumber，问题不在这一步。
+avatar_swap = "renumber"
 # 2026-11-12 正式服抓包（同版本客户端）：官方换半场不重建场景，且换半场的 12 个包
 # 全部发在 PVEBattleResultScRsp **之前**——sync/declare 都把顺序做反了。所以默认
 # 改成 official；真机验证不通过时先改回 sync 再对照 §8 的包序排查。
