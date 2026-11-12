@@ -1,4 +1,6 @@
 
+# 已脱敏：玩家 UID / 昵称 / 签名均替换为示例值（10001 / Trailblazer / 空）。
+
 ===== cmd 71 PlayerGetTokenScRsp  body=3B =====
   uid: 10001
 
