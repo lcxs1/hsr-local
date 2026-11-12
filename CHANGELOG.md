@@ -4,6 +4,9 @@
 
 ## 2026-11-12
 
+- **下半黑屏收敛：连做 4 轮 A/B，把「换半场 / 战斗包 / 结果回包 / 第二场状态 / 下半 stage 数据」全部排除**：19:26（结果回包补 `battle_avatar_list`）、19:32、19:41（`avatar_swap=skip` → 客户端 0 次 cast 卡死）、19:46（探针 `second=1` 把下半当第一场 → 同样黑屏）、19:57（`battle_stage_override=30126011` 让下半用上半 stage 数据 → 仍然黑屏、turns=0）。**下半这场战斗在正常流程、探针流程、换 stage 数据三种条件下都失败**，而客户端在 9 秒里只发心跳、不发请求——它在等一次本地加载完成。已排除项与证据整理进 [抓包方案 §11](docs/notes/2026-11-12-正式服抓包方案.md)；探针（`avatar_swap` / `battle_stage_override`）保留在 config.py，config.toml 均已归零/回到 renumber。下一步要么用进程监视器看那 9 秒的客户端行为，要么拿一个已知能跑下半的实现做对照。
+  依据：logs/test/test-20261112-192639 / 193244 / 194125 / 194611 / logs/packets.log（19:56 探针）+ 官方抓包 #519/#604/#610/#611/#658。
+
 - **下半黑屏第五轮：把「换角色实体 id」做成 A/B 开关，先按 skip 跑**：19:32 真机（结果回包已按官方补齐）仍是两层同症；同时拿到客户端施放包的字段（`cast=21 hit=[] assist=[1010] attacked_by=5`，上半是 `cast=15 assist=[1000] attacked_by=1`）——**客户端确实把下半的怪当成可打目标**，施放包没问题。剩下的可疑点收敛到换半场里唯一还会动**客户端状态**的一步：删掉角色实体 1-4 再加 5-8。新增 `[endgame] avatar_swap = renumber|reuse|skip`（默认 renumber = 官方做法），`config.toml` 先设 skip 做 A/B；单测/回放固定 renumber，不受探针影响。242 单测 + check.ps1 绿，真机待复验。
   依据：logs/test/test-20261112-193244.packets.log 的 `cast skill req` 行 + 官方抓包 #604。
 
