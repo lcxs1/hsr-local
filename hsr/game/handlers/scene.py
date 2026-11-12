@@ -66,7 +66,7 @@ async def on_entity_move(session: Session, req: pb.SceneEntityMoveCsReq) -> pb.S
             (
                 m
                 for m in req.entity_motion_list
-                if m.entity_id == session.runtime.cfg.world.leader_entity_id
+                if m.entity_id == scene_service.leader_entity_id(session)
             ),
             req.entity_motion_list[0],
         )

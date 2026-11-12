@@ -35,6 +35,23 @@ class ReplayError(RuntimeError):
     """The replay produced a result the real client would reject."""
 
 
+# 官方抓包（docs/notes/2026-11-12-正式服抓包方案.md §8）换半场的包序：
+# 删旧怪 → 换角色实体 → 3×阵容 → 挑战槽位 → 声明新组 → 移动通知。
+# ``PVEBattleResultScRsp`` 不在表里：官方永远把它放在最后。
+OFFICIAL_SWITCH = [
+    "SyncLineupNotify",
+    "ScenePlaneEventScNotify",
+    "SceneGroupRefreshScNotify",  # group 9: 删上半的怪（refresh_type=3）
+    "SceneGroupRefreshScNotify",  # 换场上角色实体（删旧 id + 加新 id）
+    "SyncLineupNotify",
+    "SyncLineupNotify",
+    "SyncLineupNotify",
+    "ChallengeLineupNotify",
+    "SceneGroupRefreshScNotify",  # group 10: 声明下半的组（group_info + LOADED）
+    "SceneEntityMoveScNotify",
+]
+
+
 @dataclass
 class ReplayResult:
     battle_ids: list[int] = field(default_factory=list)
@@ -243,7 +260,11 @@ async def run_core_flow(rt=None, *, strict: bool = False) -> ReplayResult:
 
 
 async def run_challenge_flow(
-    rt=None, *, strict: bool = False, challenge_id: int | None = None
+    rt=None,
+    *,
+    strict: bool = False,
+    challenge_id: int | None = None,
+    advance: str = "sync",
 ) -> ReplayResult:
     """Run 混沌回忆 two-half: start → 上半 → 换组 → 下半 → 结算 → 退出.
 
@@ -259,7 +280,7 @@ async def run_challenge_flow(
     with tempfile.TemporaryDirectory(prefix="hsr-replay-") as tmp:
         save = SaveStore(path=Path(tmp) / "player.json", player=copy.deepcopy(rt.save.player))
         local = replace(rt, save=save, cfg=copy.deepcopy(rt.cfg))
-        local.cfg.endgame.advance = "sync"
+        local.cfg.endgame.advance = advance
         session = ReplaySession(local)
         result = ReplayResult()
 
@@ -340,29 +361,55 @@ async def run_challenge_flow(
         await finish(upper)
         names = [type(message).__name__ for message in session.sent]
         _check("ChallengeSettleNotify" not in names, "上半 must not settle the run")
-        try:
-            rsp_index = names.index("PVEBattleResultScRsp")
-        except ValueError as exc:
-            raise ReplayError(f"advance did not ack the battle result: {names}") from exc
-        _check(
-            names[:rsp_index] == ["ChallengeLineupNotify", "SyncLineupNotify"],
-            f"lineup switch must precede the result ack: {names}",
-        )
-        _check(
-            names[rsp_index + 1 :]
-            == ["SyncServerSceneChangeNotify", "EnterSceneByServerScNotify"],
-            f"scene-change sequence mismatch: {names}",
-        )
-        scene = session.sent[-1].scene
-        groups = [group.group_id for group in scene.entity_group_list]
-        _check(
-            challenge.node2.maze_group_id in groups,
-            "new arena group was not declared in the scene",
-        )
-        _check(
-            challenge.node1.maze_group_id not in groups,
-            "old arena group must not stay in the new scene",
-        )
+        if advance == "official":
+            # 官方：整段换半场包在战斗态里就发完，结果包最后才到。
+            _check(
+                names == [*OFFICIAL_SWITCH, "PVEBattleResultScRsp"],
+                f"official switch sequence mismatch: {names}",
+            )
+            _check(
+                session.sent[-1].stage_id == challenge.node1.stage_id,
+                "official switch must ack the upper half last",
+            )
+            declared = session.sent[OFFICIAL_SWITCH.index("ChallengeLineupNotify") + 1]
+            _check(
+                declared.group_refresh_list[0].group_id
+                == challenge.node2.maze_group_id
+                and declared.group_refresh_list[0].refresh_type
+                == pb.SceneGroupRefreshType.SCENE_GROUP_REFRESH_TYPE_LOADED,
+                "official switch did not declare the lower arena group",
+            )
+            _check(
+                [group.group_id for group in session.scene.extra_groups]
+                == [challenge.node2.maze_group_id],
+                "official switch left the old arena group behind",
+            )
+        else:
+            try:
+                rsp_index = names.index("PVEBattleResultScRsp")
+            except ValueError as exc:
+                raise ReplayError(
+                    f"advance did not ack the battle result: {names}"
+                ) from exc
+            _check(
+                names[:rsp_index] == ["ChallengeLineupNotify", "SyncLineupNotify"],
+                f"lineup switch must precede the result ack: {names}",
+            )
+            _check(
+                names[rsp_index + 1 :]
+                == ["SyncServerSceneChangeNotify", "EnterSceneByServerScNotify"],
+                f"scene-change sequence mismatch: {names}",
+            )
+            scene = session.sent[-1].scene
+            groups = [group.group_id for group in scene.entity_group_list]
+            _check(
+                challenge.node2.maze_group_id in groups,
+                "new arena group was not declared in the scene",
+            )
+            _check(
+                challenge.node1.maze_group_id not in groups,
+                "old arena group must not stay in the new scene",
+            )
         result.events.append("challenge_advance")
 
         lower = await fight()

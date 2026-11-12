@@ -97,6 +97,10 @@ async def _advance_phase(session: Session, rsp: pb.PVEBattleResultScRsp) -> None
     the fight state there and processes them — reference behaviour), while the
     scene group refreshes go out **after** it, because some clients ignore scene
     refresh packets that arrive mid-battle.
+
+    官方真机（抓包 §8）恰恰相反：换半场的 10 个包（含两次组刷新）全在结果包
+    **之前**，结果包最后才发。advance = official 走这条顺序，此时
+    transition.after 是空的。
     """
     transition = challenge_service.advance(session)
     for message in transition.before:

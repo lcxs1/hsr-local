@@ -4,6 +4,9 @@
 
 ## 2026-11-12
 
+- **混沌回忆换半场改成逐包照抄正式服：新增 `[endgame] advance = "official"` 并设为默认**：按抓包 §8 重写换半场——原地删上半的怪（`refresh_type=3`）→ 换场上角色实体（删旧 id + 加新 id）→ 3×`SyncLineupNotify` → `ChallengeLineupNotify` → 用 `group_info` 声明下半的组 → 移动通知，10 个包**全在 `PVEBattleResultScRsp` 之前**；不重建场景、不发 `SyncServerSceneChangeNotify` / `EnterSceneByServerScNotify`。配套 `scene.avatar_base`（场上角色实体基座，换半场 +4）+ `scene.leader_entity_id()`（`SceneInfo.leader_entity_id` / 走位包 / `SceneEntityMoveCsReq` 的队长判定都跟着基座走）、`scene.GROUP_REFRESH_REFRESH`（type 3）、`declared_group_notify(state=…)`（官方 `group_info.state` 留空）、`move_notify(entity_id=…)`（官方不带 entity_id）。故意不照抄的两处（挑战 buff 包、官方实体 id）写在 [§11](docs/notes/2026-11-12-正式服抓包方案.md)。**240 单测 + 回放（`advance="official"` 逐包断言）绿，真机未验**；验证不通过先改回 `advance = "sync"`。
+  依据：docs/notes/2026-11-12-正式服抓包方案 §8/§9/§11 + `tools/captures/official-20261112-1727`（`dump_frames.py` 解出的 #592-#604 原文）；用户要求直接动手。
+
 - **正式服抓包成功，混沌回忆下半场的官方答案拿到**：2026-11-12 17:27 用 CN 4.7.0 客户端真机抓了一轮混沌回忆第 1 层，843 帧 / 381 条命令全解开。结论：**下半是真打的（`stt.turns=5`、cost 33.3s）**，官方**不发** `EnterChallengeNextPhaseCsReq`、客户端也**不重发** `StartChallengeCsReq`；换半场是**原地换实体组**（删上半怪 group 9 → 删/加 4 个角色实体 → 4 条 `SyncLineupNotify` → `ChallengeLineupNotify` → 用 `group_info` 声明 group 10），**全程不重建场景**，且 `PVEBattleResultScRsp` **最后**才发。完整包序与"与现实现的 7 处差异"写进 [docs/notes/2026-11-12-正式服抓包方案](docs/notes/2026-11-12-正式服抓包方案.md) §8/§9。
   依据：`E:\LCXS\tools\captures\official-20261112-1727`（capture.bin / raw.jsonl / challenge.md）；首版因为漏了 EC2B `KeyScramble` 一帧没解开，已用 `redecode.py` 离线重解并补上回归用例。
 

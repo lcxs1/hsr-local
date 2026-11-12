@@ -37,6 +37,10 @@ with ``[endgame] advance``:
   ``SyncServerSceneChangeNotify`` (4.6.54/4.7.0 black-screen path; A/B only).
 * ``client``  — push nothing and wait for the client to send ``StartChallenge``
   again (pearl-sr style, works only if the client drives the phase itself).
+* ``official`` — 逐包照抄正式服真机（docs/notes/2026-11-12-正式服抓包方案.md §8）：
+  原地删旧怪 → 换角色实体 → 3×``SyncLineupNotify`` → ``ChallengeLineupNotify``
+  → 声明下半的组 → 移动通知，**全部**发在结果包之前。不重建场景、不发
+  ``SyncServerSceneChangeNotify``。
 """
 
 from __future__ import annotations
@@ -107,6 +111,10 @@ class Transition:
     refreshes are dropped by some clients while a battle is running
     (reference comment: "Some clients ignore scene refresh packets while in
     battle; resend the removals after battle result").
+
+    官方 4.6.54/4.7.0 真机（抓包 §8）把整段换半场包都放在结果包之前，组刷新在
+    战斗态里照样生效——所以 advance=official 的 10 个包全在 before，
+    after 只留给 sync/scene 那几条老路。
     """
 
     before: list = field(default_factory=list)
@@ -831,6 +839,128 @@ def _advance_declare(session, state: ChallengeState, phase: Phase) -> Transition
     return Transition(before=before, after=after)
 
 
+def _advance_official(session, state: ChallengeState, phase: Phase) -> Transition:
+    """Phase switch copied packet-for-packet from the official server.
+
+    抓包：``docs/notes/2026-11-12-正式服抓包方案.md`` §8（2026-11-12 17:29 真机）。
+    官方**不重建场景**（没有 ``SyncServerSceneChangeNotify``、没有新的
+    ``SceneInfo``），而是在同一个 arena 里删旧怪 → 换角色实体 → 切阵容 →
+    声明新组 → 移动通知。官方这 12 个包**全部发在** ``PVEBattleResultScRsp``
+    之前（私服发其中 10 个，见下），客户端处理它们时还停在战斗态；
+    ``sync`` / ``declare`` 都把顺序做反了。
+
+    有两处是**故意**不照抄的：
+
+    * 官方的两条 ``SyncEntityBuffChangeListScNotify``（#593/#596）动的是本局专用的
+      挑战 buff 实体（6291457/6291458），私服没有这些实体，照抄只会给不存在的
+      entity 发 remove。
+    * 角色实体的 id 用自己的基座（``scene.avatar_base``），不抄 1048579-82 →
+      1048593-96；官方那串 id 是它的全局实体计数器，私服场上实体是 1..4。
+    """
+    previous = state.current
+    previous_group = int(previous.node.maze_group_id)
+    old_entities = [
+        pb.SceneEntityInfo(group_id=previous_group, entity_id=int(entity.entity_id))
+        for group in session.scene.extra_groups
+        for entity in group.entity_list
+    ]
+    old_avatar_base = int(session.scene.avatar_base)
+    old_avatar_ids = [
+        old_avatar_base + slot
+        for slot, avatar_id in enumerate(previous.team)
+        if avatar_id
+    ]
+    before: list = []
+    # #592 上半阵容（客户端还停在战斗态时就要收到）
+    before.append(pb.SyncLineupNotify(lineup=lineup_info(session)))
+    # #594 场景事件（官方的 get_item_list 是空的）
+    before.append(pb.ScenePlaneEventScNotify(get_item_list=pb.ItemList()))
+    # #595 删掉上半的迷宫组实体（官方删的是上半那只怪，refresh_type=3）
+    if old_entities:
+        before.append(
+            scene_service.group_refresh_notify(
+                session,
+                remove=old_entities,
+                refresh_type=scene_service.GROUP_REFRESH_REFRESH,
+            )
+        )
+    # #597 换场上角色实体：删旧 id、按新 id 加回来（同一个 GroupRefreshInfo 里）
+    team_size = int(getattr(session.runtime.cfg.world, "team_size", 4) or 4)
+    session.scene.avatar_base = old_avatar_base + max(len(previous.team), team_size)
+    new_avatars = scene_service.avatar_entities(session, phase.team)
+    if old_avatar_ids or new_avatars:
+        before.append(
+            scene_service.group_refresh_notify(
+                session,
+                remove=[
+                    pb.SceneEntityInfo(
+                        group_id=session.runtime.cfg.world.avatar_group_id,
+                        entity_id=entity_id,
+                    )
+                    for entity_id in old_avatar_ids
+                ],
+                add=new_avatars,
+                refresh_type=scene_service.GROUP_REFRESH_REFRESH,
+            )
+        )
+    # #598-#601 阵容切到下半：三条 SyncLineupNotify（官方第 3 条与第 2 条相同），
+    # 再告诉客户端挑战阵容槽位从 LineupChallenge 换成 LineupChallenge2。
+    state.index = phase.index
+    session.scene.team = list(phase.team)
+    lineup = lineup_info(session)
+    before.extend(pb.SyncLineupNotify(lineup=lineup) for _ in range(3))
+    before.append(pb.ChallengeLineupNotify(extra_lineup_type=phase.lineup_type))
+    # #602 声明下半的迷宫组（整组 group_info + LOADED，state 官方留空）
+    new_entities, monster_entity_id = scene_service.challenge_group_entities(
+        session,
+        plane_id=phase.node.plane_id,
+        group_id=phase.node.maze_group_id,
+        monster_id=phase.node.monster_id,
+        stage_id=phase.stage_id,
+        entry_id=phase.node.entrance_id,
+        base=scene_service.CHALLENGE_ENTITY_BASE + 10 * phase.index,
+    )
+    before.append(
+        scene_service.declared_group_notify(
+            session, phase.node.maze_group_id, new_entities, state=0
+        )
+    )
+    # #603 移动通知（官方 entity_id 留空 = 0）
+    before.append(scene_service.move_notify(session, entity_id=0))
+
+    # 状态收尾：和 declare 一样，新半场是一场新战斗，旧 battle id 全部作废。
+    session.scene.extra_groups = [
+        pb.SceneEntityGroupInfo(
+            group_id=int(phase.node.maze_group_id),
+            state=1,
+            entity_list=new_entities,
+        )
+    ]
+    state.monster_entity_id = monster_entity_id
+    state.stage_id = phase.stage_id
+    state.battle_id = 0
+    state.battle_ids.clear()
+    session.battle_info = None
+    state.phase_start_rounds = int(state.rounds_left)
+    state.phase_start_dead_avatars = int(state.dead_avatars)
+    session.runtime.logger.info(
+        "challenge advance (official): id=%d phase=%d->%d group=%d->%d"
+        " avatar_base=%d->%d stage=%d entities=%d packets=%d team=%s",
+        state.challenge_id,
+        phase.index,
+        phase.index + 1,
+        previous_group,
+        phase.node.maze_group_id,
+        old_avatar_base,
+        session.scene.avatar_base,
+        phase.stage_id,
+        len(new_entities),
+        len(before),
+        phase.team,
+    )
+    return Transition(before=before)
+
+
 def advance(session, *, mode: str | None = None) -> Transition:
     """Switch the attempt to its next phase; returns the packets to send.
 
@@ -849,6 +979,8 @@ def advance(session, *, mode: str | None = None) -> Transition:
         return Transition()
 
     phase = state.phases[state.index + 1]
+    if mode == "official":
+        return _advance_official(session, state, phase)
     if mode == "declare":
         return _advance_declare(session, state, phase)
     if mode == "sync":

@@ -94,7 +94,10 @@ class EndgameSettings(BaseModel):
     #   inplace = 同场景原地换组（逐实体 patch，4.7 会在客户端 NRE，仅留作 A/B）
     #   scene   = 不发 SyncServerSceneChangeNotify，直接推新 SceneInfo（A/B）
     #   client  = 只回战斗结果，等客户端自己发 StartChallenge（pearl 流程）
-    advance: Literal["declare", "sync", "inplace", "scene", "client"] = "sync"
+    #   official = 逐包照抄正式服真机（docs/notes/2026-11-12-正式服抓包方案.md §8）：
+    #             原地删旧怪 → 换角色实体 → 3×SyncLineupNotify → ChallengeLineupNotify
+    #             → 声明下半的组 → 移动通知，12 个包全在结果包之前；不重建场景
+    advance: Literal["official", "declare", "sync", "inplace", "scene", "client"] = "official"
     # 忘却之庭大厅报哪些场景组（客户端按“已加载组”创建地图 NPC）：
     #   all      = 全部道具（含车厢装饰）
     #   crystals = 只报可交互展台（prop_id >= 100000）

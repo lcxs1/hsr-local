@@ -63,6 +63,10 @@ class SceneState:
     # 为空 = 用 session.lineup（野外阵容）。挑战结束后必须清掉，否则 GetCurSceneInfo
     # 会把上一队的阵容当成野外阵容发出去。
     team: list[int] | None = None
+    # 场上角色实体的起始 id（``avatar_entities`` 用 ``avatar_base + slot``）。
+    # 官方换半场时换了一批新 id（1048579-82 → 1048593-96），而不是删掉再加回同一批；
+    # ``advance=official`` 跟着换，其余路径都保持 1。
+    avatar_base: int = 1
 
     @classmethod
     def from_config(cls, world) -> SceneState:
@@ -113,6 +117,17 @@ def _motion(session) -> pb.MotionInfo:
     return pb.MotionInfo(pos_index=_vector(*_pos(session)), rot_index=pb.Vector())
 
 
+def leader_entity_id(session) -> int:
+    """Entity id of the controlled slot, honouring a bumped ``avatar_base``.
+
+    ``world.leader_entity_id`` is a *slot* id (default 1 = slot 0); the entity
+    id moves with the base, so a challenge that renumbers its avatars (see
+    ``advance=official``) keeps ``SceneInfo.leader_entity_id`` and movement
+    handling pointing at the right entity.
+    """
+    return int(session.scene.avatar_base) + int(session.runtime.cfg.world.leader_entity_id) - 1
+
+
 # ------------------------------------------------------------------ builders
 def avatar_entities(
     session, avatars: list[int] | None = None
@@ -122,9 +137,9 @@ def avatar_entities(
     ``avatars`` lets a challenge show the team the client picked in
     ``StartChallengeCsReq`` instead of the open-world lineup.
 
-    ``entity_id`` is ``slot + 1``, so it must stay aligned with
-    ``world.leader_entity_id`` (default 1 = slot 0).  ``base_avatar_id`` is the
-    id stored in the lineup (base id, not form id).
+    ``entity_id`` is ``scene.avatar_base + slot`` (base 1 by default, so ids are
+    1..4); :func:`leader_entity_id` derives the controlled slot from the same
+    base.  ``base_avatar_id`` is the id stored in the lineup (base id, not form id).
     """
     entities: list[pb.SceneEntityInfo] = []
     uid = _uid(session)
@@ -141,7 +156,7 @@ def avatar_entities(
             continue
         entities.append(
             pb.SceneEntityInfo(
-                entity_id=slot + 1,
+                entity_id=session.scene.avatar_base + slot,
                 actor=pb.SceneActorInfo(
                     base_avatar_id=avatar_id,
                     avatar_type=pb.AvatarType.AvatarType_AvatarFormalType,
@@ -209,7 +224,6 @@ def build_scene(session) -> pb.SceneInfo:
     entity ids built by :func:`avatar_entities`.
     """
     state = session.scene
-    world = session.runtime.cfg.world
     return pb.SceneInfo(
         plane_id=state.plane_id,
         floor_id=state.floor_id,
@@ -217,7 +231,7 @@ def build_scene(session) -> pb.SceneInfo:
         dimension_id=state.dimension_id,
         game_mode_type=state.game_mode_type,
         world_id=state.world_id,
-        leader_entity_id=world.leader_entity_id,
+        leader_entity_id=leader_entity_id(session),
         client_pos_version=state.client_pos_version,
         scene_identifier=state.identifier,
         entity_group_list=entity_groups(session),
@@ -598,6 +612,9 @@ def _challenge_entities(
 # （见 guide/03 坑 35）。参考实现（HyacineCore 4.0 ``PacketSceneGroupRefreshScNotify``，
 # 同日 DanhengServer 同文件）一个字段都不多设。
 GROUP_REFRESH_LOADED = pb.SceneGroupRefreshType.SCENE_GROUP_REFRESH_TYPE_LOADED
+# 官方 4.6.54/4.7.0 换半场全程用 3（客户端枚举名 ``AFIBFMAFNCC`）：语义是
+# “删/改这个组里的实体”，纯删和“删了再加”都用它。抓包证据见 §8 的 #595/#597/#681。
+GROUP_REFRESH_REFRESH = pb.SceneGroupRefreshType.SCENE_GROUP_REFRESH_TYPE_AFIBFMAFNCC
 # 4.7.0 的语义：LOADED = 激活这个组（已激活时会在 _ActiveServerHoyoGroup 里 NRE），
 # UNLOAD = 整组卸载。卸载**必须**用 UNLOAD。
 GROUP_REFRESH_UNLOAD = pb.SceneGroupRefreshType.SCENE_GROUP_REFRESH_TYPE_UNLOAD
@@ -697,6 +714,7 @@ def declared_group_notify(
     entities: list[pb.SceneEntityInfo],
     *,
     refresh_type: int = GROUP_REFRESH_LOADED,
+    state: int = 1,
 ) -> pb.SceneGroupRefreshScNotify:
     """Load one maze group the way 4.7 declares server groups.
 
@@ -706,18 +724,21 @@ def declared_group_notify(
     patched: the client builds the group from the entity list instead of running
     ``MapDef._ActiveServerHoyoGroup`` on a group it has never seen (which NREs,
     see :func:`group_refresh_notify`).
+
+    ``state`` is left unset (``0``) by the official half-switch; the older
+    declare path keeps ``1``.
     """
-    state = session.scene
+    scene = session.scene
     return pb.SceneGroupRefreshScNotify(
-        floor_id=state.floor_id,
-        dimension_id=state.dimension_id,
+        floor_id=scene.floor_id,
+        dimension_id=scene.dimension_id,
         group_refresh_list=[
             pb.GroupRefreshInfo(
                 group_id=int(group_id),
                 refresh_type=refresh_type,
                 group_info=pb.SceneEntityGroupInfo(
                     group_id=int(group_id),
-                    state=1,
+                    state=int(state),
                     entity_list=list(entities),
                 ),
             )
@@ -804,14 +825,18 @@ def challenge_group_entities(
     )
 
 
-def move_notify(session, avatars: list[int] | None = None) -> pb.SceneEntityMoveScNotify:
+def move_notify(
+    session, avatars: list[int] | None = None, *, entity_id: int | None = None
+) -> pb.SceneEntityMoveScNotify:
     """``SceneEntityMoveScNotify`` holding the player's current position.
 
     Danheng ``MoveTo`` sends this after a phase switch so the client snaps the
-    whole team to the new arena start.
+    whole team to the new arena start.  ``entity_id=None`` uses the current
+    leader; the official half-switch leaves the field unset (``0``).
     """
     state = session.scene
-    entity_id = session.runtime.cfg.world.leader_entity_id
+    if entity_id is None:
+        entity_id = leader_entity_id(session)
     return pb.SceneEntityMoveScNotify(
         entity_id=entity_id,
         entry_id=state.entry_id,
@@ -867,6 +892,8 @@ def build_challenge_scene(
     state.position = pos
     state.client_pos_version += 1
     state.prop_states = {}
+    # 整份新 SceneInfo 会把场上的角色实体重新声明成 1..4，基座跟着回到 1。
+    state.avatar_base = 1
     state.team = list(avatars) if avatars else list(session.lineup.slots)
     state.saved_data = {
         str(item["name"]): int(item["value"])
@@ -908,7 +935,7 @@ def build_challenge_scene(
         dimension_id=state.dimension_id,
         game_mode_type=state.game_mode_type,
         world_id=state.world_id,
-        leader_entity_id=session.runtime.cfg.world.leader_entity_id,
+        leader_entity_id=leader_entity_id(session),
         client_pos_version=state.client_pos_version,
         scene_identifier=state.identifier,
         entity_group_list=groups,

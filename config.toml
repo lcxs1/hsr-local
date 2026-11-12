@@ -88,18 +88,21 @@ moc_group_id = 0
 # false = 没通关历史就发 0 星（会锁住后面的层；通关历史在 M3 落库后再用）
 unlock_all = true
 # 一个阶段（上半 / 星启节点）打完怎么进下一个：
+#   official = 逐包照抄正式服真机（docs/notes/2026-11-12-正式服抓包方案.md §8）：
+#              原地删旧怪 → 换角色实体 → 3×SyncLineupNotify → ChallengeLineupNotify
+#              → 声明下半的组 → 移动通知；12 个包**全在结果包之前**，不重建场景
 #   sync    = 参考顺序（LunarCore advanceStage）：ChallengeLineupNotify →
 #             SyncServerSceneChangeNotify + SyncLineupNotify +
-#             EnterSceneByServerScNotify（整份新 SceneInfo，默认）
+#             EnterSceneByServerScNotify（整份新 SceneInfo，客户端会重载 stage）
 #   declare = 原地声明下一个迷宫组（GroupRefreshInfo.group_info=整组），
 #             不推场景、不触发客户端重载 stage
 #   inplace = 同场景原地换组（逐实体 patch，4.7.0 客户端 NRE，仅 A/B）
 #   scene   = 不发 SyncServerSceneChangeNotify，直接推新 SceneInfo（A/B）
 #   client  = 只回战斗结果，等客户端自己发 StartChallenge（pearl 流程）
-# 2026-11-11 真机：sync 已能让上下半都进、都能开打；剩下的问题是下半那场战斗
-# 卡在进场动画。declare 实测（23:46）不重载 stage，但客户端没有可攻击的怪，
-# 所以默认保持 sync。
-advance = "sync"
+# 2026-11-12 正式服抓包（同版本客户端）：官方换半场不重建场景，且换半场的 12 个包
+# 全部发在 PVEBattleResultScRsp **之前**——sync/declare 都把顺序做反了。所以默认
+# 改成 official；真机验证不通过时先改回 sync 再对照 §8 的包序排查。
+advance = "official"
 # 大厅报哪些场景组（客户端按“已加载组”创建地图 NPC）。装饰组里有 4.6.54 客户端
 # 定义残缺的 MapNPC:227-400001，会把传送加载卡死，所以只报可交互展台。
 #   all = 全部 / crystals = 只报 prop_id >= 100000 的展台 / none = 都不报

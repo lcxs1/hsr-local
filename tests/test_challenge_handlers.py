@@ -742,6 +742,150 @@ class ChallengeHandlersTest(unittest.IsolatedAsyncioTestCase):
             state.avatars,
         )
 
+    async def test_advance_official_replays_the_capture(self) -> None:
+        """``advance=official``：逐包复刻正式服真机换半场（抓包 §8）。
+
+        官方顺序（12 个包**全部**在 ``PVEBattleResultScRsp`` 之前）：
+        ``SyncLineupNotify``(上半) → ``ScenePlaneEventScNotify`` →
+        删上半的怪 → 换角色实体 → 3×``SyncLineupNotify``(下半) →
+        ``ChallengeLineupNotify`` → 声明下半的组 → ``SceneEntityMoveScNotify``。
+
+        和 ``sync`` 的分水岭：没有 ``SyncServerSceneChangeNotify`` /
+        ``EnterSceneByServerScNotify``（不重建场景），也不结算。
+        """
+        self.rt.cfg.endgame.advance = "official"
+        await challenge_handlers.on_start_challenge(
+            self.session,
+            pb.StartChallengeCsReq(
+                challenge_id=1101,
+                avatar_lineup_first=self._lineup(1506, 1501),
+                avatar_lineup_second=self._lineup(1414, 1502),
+            ),
+        )
+        challenge = self.rt.endgame.challenge(1101)
+        node1, node2 = challenge.node1, challenge.node2
+        state = self.session.challenge
+        upper_monster = state.monster_entity_id
+        upper_avatars = [
+            entity.entity_id for entity in scene_service.avatar_entities(self.session)
+        ]
+        battle = await scene_handlers.on_cast_skill(
+            self.session, pb.SceneCastSkillCsReq(cast_entity_id=1)
+        )
+        self.sent.clear()
+        await battle_handlers.on_pve_result(
+            self.session,
+            pb.PVEBattleResultCsReq(
+                battle_id=battle.battle_info.battle_id,
+                stage_id=battle.battle_info.stage_id,
+                end_status=pb.BattleEndStatus.Value("BATTLE_END_WIN"),
+            ),
+        )
+        kinds = [type(message).__name__ for message in self.sent]
+        self.assertEqual(
+            kinds,
+            [
+                "SyncLineupNotify",
+                "ScenePlaneEventScNotify",
+                "SceneGroupRefreshScNotify",
+                "SceneGroupRefreshScNotify",
+                "SyncLineupNotify",
+                "SyncLineupNotify",
+                "SyncLineupNotify",
+                "ChallengeLineupNotify",
+                "SceneGroupRefreshScNotify",
+                "SceneEntityMoveScNotify",
+                "PVEBattleResultScRsp",
+            ],
+        )
+        self.assertNotIn("SyncServerSceneChangeNotify", kinds)
+        self.assertNotIn("EnterSceneByServerScNotify", kinds)
+        self.assertNotIn("ChallengeSettleNotify", kinds)
+
+        # #592 上半阵容，槽位还是 LineupChallenge
+        self.assertEqual(
+            self.sent[0].lineup.extra_lineup_type,
+            pb.ExtraLineupType.ExtraLineupType_LineupChallenge,
+        )
+        # #595 先删上半的怪：refresh_type=3，不是 LOADED/UNLOAD
+        old = self.sent[2].group_refresh_list[0]
+        self.assertEqual(old.group_id, node1.maze_group_id)
+        self.assertEqual(
+            old.refresh_type,
+            pb.SceneGroupRefreshType.SCENE_GROUP_REFRESH_TYPE_AFIBFMAFNCC,
+        )
+        self.assertIn(
+            upper_monster, [item.delete_entity for item in old.refresh_entity]
+        )
+        # #597 角色实体整体换一批 id（官方 1048579-82 → 1048593-96）
+        swap = self.sent[3].group_refresh_list[0]
+        self.assertEqual(
+            swap.refresh_type,
+            pb.SceneGroupRefreshType.SCENE_GROUP_REFRESH_TYPE_AFIBFMAFNCC,
+        )
+        deleted = [
+            item.delete_entity
+            for item in swap.refresh_entity
+            if item.HasField("delete_entity")
+        ]
+        added = [
+            item.add_entity for item in swap.refresh_entity if item.HasField("add_entity")
+        ]
+        self.assertEqual(deleted, upper_avatars)
+        self.assertEqual(
+            [entity.entity_id for entity in added],
+            [self.session.scene.avatar_base + slot for slot in range(len(added))],
+        )
+        self.assertFalse(set(deleted) & {entity.entity_id for entity in added})
+        # #598-#600 三条下半阵容包（官方第 3 条与第 2 条相同）
+        for index in (4, 5, 6):
+            self.assertEqual(
+                self.sent[index].lineup.extra_lineup_type,
+                pb.ExtraLineupType.ExtraLineupType_LineupChallenge2,
+            )
+        # #601 挑战阵容槽位切到下半
+        self.assertEqual(
+            self.sent[7].extra_lineup_type,
+            pb.ExtraLineupType.ExtraLineupType_LineupChallenge2,
+        )
+        # #602 声明下半的组：整组 group_info + LOADED
+        declared = self.sent[8].group_refresh_list[0]
+        self.assertEqual(declared.group_id, node2.maze_group_id)
+        self.assertEqual(
+            declared.refresh_type,
+            pb.SceneGroupRefreshType.SCENE_GROUP_REFRESH_TYPE_LOADED,
+        )
+        monsters = [
+            entity
+            for entity in declared.group_info.entity_list
+            if entity.HasField("npc_monster")
+        ]
+        self.assertTrue(monsters)
+        self.assertEqual(monsters[0].npc_monster.event_id, node2.stage_id)
+        # #603 移动通知 + #604 结果包收尾
+        self.assertEqual(self.sent[9].entry_id, node2.entrance_id)
+        self.assertEqual(self.sent[10].stage_id, node1.stage_id)
+
+        self.assertEqual(state.index, 1)
+        self.assertEqual(state.stage_id, node2.stage_id)
+        self.assertEqual(
+            state.avatars,
+            [self.rt.roster.base_id(1414), self.rt.roster.base_id(1502)],
+        )
+        self.assertEqual(
+            [group.group_id for group in self.session.scene.extra_groups],
+            [node2.maze_group_id],
+        )
+        # 下半再打一场用的是新实体 id 与新队伍
+        second_battle = await scene_handlers.on_cast_skill(
+            self.session, pb.SceneCastSkillCsReq(cast_entity_id=1)
+        )
+        self.assertEqual(second_battle.battle_info.stage_id, node2.stage_id)
+        self.assertEqual(
+            [avatar.id for avatar in second_battle.battle_info.battle_avatar_list],
+            state.avatars,
+        )
+
     async def test_advance_declare_uses_group_info_not_entity_patch(self) -> None:
         """``advance=declare``：原地**声明**下一个迷宫组，不推场景、不重载 stage。
 
