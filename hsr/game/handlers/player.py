@@ -69,8 +69,25 @@ async def on_set_paused(session: Session, req: pb.SetClientPausedCsReq) -> pb.Se
     return pb.SetClientPausedScRsp(paused=req.paused)
 
 
+async def on_sync_res_version(
+    session: Session, req: pb.SyncClientResVersionCsReq
+) -> pb.SyncClientResVersionScRsp:
+    """客户端资源版本同步：原样回显版本号。
+
+    官方（抓包 #651 → #655）收到 LJKMPIMKOMO=17145778 就回同一个值。以前这条走
+    通用空回包，等于告诉客户端「服务端资源版本 = 0」；客户端在开战前会发它
+    （混沌回忆每一次战斗前都发），版本对不上时进战斗会卡住。
+    """
+    session.runtime.logger.debug("client res version: %d", req.LJKMPIMKOMO)
+    return pb.SyncClientResVersionScRsp(
+        retcode=0,
+        LJKMPIMKOMO=req.LJKMPIMKOMO,
+    )
+
+
 def register(router: Router) -> None:
     router.add("PlayerHeartBeatCsReq", on_heartbeat)
     router.add("GetPlayerBoardDataCsReq", on_board_data)
     router.add("SetClientPausedCsReq", on_set_paused)
+    router.add("SyncClientResVersionCsReq", on_sync_res_version)
     router.add("PlayerLogoutCsReq", on_logout, expect_rsp=False)

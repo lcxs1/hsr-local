@@ -4,6 +4,9 @@
 
 ## 2026-11-12
 
+- **下半战斗黑屏第三轮：两层都复现 → 补上资源版本回显**：19:17 真机按新脚本打了两层（5501/5502），**两层症状完全一样**（上半 turns=1 正常、下半 turns=0 + 固定 9 s），所以不是 stage 数据问题，而是「同一局挑战的第二场战斗」通用失败。逐帧比对官方 #604-#658 后确认换半场 10 个包（含 group 9 删除、group 10 声明、角色实体换 id、四条阵容包）与官方逐字段一致，排除了换半场。随后发现一个真实的协议缺口：客户端在每次开战前发 SyncClientResVersionCsReq（LJKMPIMKOMO=资源版本），官方 #651→#655 **原样回显**，而私服走通用空回包——等于告诉客户端「服务端资源版本 = 0」。新增 handlers/player.on_sync_res_version 回显版本号并注册；新增 tests/test_res_version.py（2 例）。244 单测 + check.ps1 绿，真机待复验。
+  依据：logs/test/test-20261112-191725.*（两层判定）+ 官方抓包 #651/#655；同一轮里 battle_stage_id/每怪空 ItemList/FGOAKDCBIOE 已先补（见上一条），本次不重复改。
+
 - **新增一键复测脚本 + 运行判定器**：`scripts/test_lower_half.ps1`（检查 `advance = official` → 复用 `game_test.ps1` 起服务端/代理/游戏收证据 → 结束后自动判定下半有没有真打，`-AnalyseOnly` 可只分析旧日志）与 `scripts/analyze_run.py`（按 challenge id 汇总每半场 `turns`/`cost`、换半场模式与包数、advance 之后客户端 cast 次数与延迟，PASS/FAIL 走退出码）。判据固化：`turns>0` = 真打，`turns=0` + ≤15 s = 战斗场景加载超时判胜。用 2026-11-12 18:57 那轮验证过输出（正确判 FAIL 并指出 +2923 ms 的 cast）。
   依据：两轮真机都要人工翻日志，把判定固化成脚本；跑 `check.ps1` 全绿。
 
