@@ -69,13 +69,18 @@ $before = @(Get-ChildItem $OutDir -Filter '*.server.log' -ErrorAction SilentlyCo
 
 # --- 3) 起服务端 / 代理 / 游戏（复用 game_test.ps1） ---------------------------
 $gameTest = Join-Path $PSScriptRoot 'game_test.ps1'
-$childArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $gameTest, '-Client', $Client)
-if ($NoLaunch) { $childArgs += '-NoLaunch' }
-& powershell @childArgs
+# 同一个 PowerShell 进程里直接跑，不另起 powershell.exe：另起进程时如果脚本没有 UTF-8 BOM，
+# Windows PowerShell 5.1 会按 ANSI 读中文 → 乱码 + 语法错误（2026-11-12 踩过）。
+& $gameTest -Client $Client -NoLaunch:$NoLaunch
 
 # --- 4) 判定 -----------------------------------------------------------------
 $after = @(Get-ChildItem $OutDir -Filter '*.server.log' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime)
 $new = @($after | Where-Object { $before -notcontains $_.FullName })
+$ranNew = $new.Count -gt 0
+if (-not $ranNew) {
+    Write-Host ''
+    Write-Host '这一轮没有产生新的服务端日志（game_test.ps1 没跑起来？），下面分析的只是旧日志。' -ForegroundColor Yellow
+}
 $target = if ($new.Count) { $new[-1].FullName } elseif ($Run) { $Run } else { $OutDir }
 
 Write-Host ''
@@ -93,4 +98,5 @@ if ($verdict -eq 0) {
     Write-Host '下半还是没真打。把 report.md、同目录 .server.log / .packets.log、' -ForegroundColor Yellow
     Write-Host '以及 *-battle-info+4.png 那张截图发回来（全黑就说明战斗场景没加载完）。' -ForegroundColor Yellow
 }
+if (-not $ranNew) { exit 3 }
 exit $verdict

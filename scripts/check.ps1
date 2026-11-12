@@ -33,6 +33,23 @@ Write-Host '== check_docs ==' -ForegroundColor Cyan
 & $Python scripts\check_docs.py
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+Write-Host '== ps1 编码 ==' -ForegroundColor Cyan
+$noBom = @()
+Get-ChildItem -Path $Root -Filter *.ps1 -Recurse -ErrorAction SilentlyContinue |
+    Where-Object { $_.FullName -notmatch '\\\.venv\\' } |
+    ForEach-Object {
+        $bytes = [IO.File]::ReadAllBytes($_.FullName)
+        $hasBom = $bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF
+        $nonAscii = $false
+        foreach ($b in $bytes) { if ($b -gt 0x7F) { $nonAscii = $true; break } }
+        if ($nonAscii -and -not $hasBom) { $noBom += $_.FullName }
+    }
+if ($noBom.Count) {
+    Write-Host '这些 .ps1 含非 ASCII 但没有 UTF-8 BOM（Windows PowerShell 5.1 会乱码/语法错误）：' -ForegroundColor Red
+    $noBom | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
+    exit 1
+}
+
 if (-not $SkipRuff) {
     $Ruff = $null
     $cmd = Get-Command ruff -ErrorAction SilentlyContinue

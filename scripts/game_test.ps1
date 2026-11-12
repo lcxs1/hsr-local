@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 <#
 .SYNOPSIS
     hsr-local 测试器（v2）：起服务端 → 起代理/游戏 → 事件驱动截图 → 收证据 → 出报告。
