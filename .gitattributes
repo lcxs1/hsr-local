@@ -1,0 +1,10 @@
+# Keep text checkouts consistent; mark generated/binary payloads.
+* text=auto
+*.ps1 text
+*.bat text
+*.desc binary
+*.crt binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary

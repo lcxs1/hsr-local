@@ -51,7 +51,7 @@ class PathSettings(BaseModel):
     lua_dir: str = "lua"
     freesr: str = "data/freesr-data.json"
     hotfix: str = "data/hotfix.json"
-    # 客户端安装目录（例如 E:\SiFu\HSRSiFu\StarRail_CN_4.7.0）。只读回放用；
+    # 客户端安装目录（例如 D:\StarRail\StarRail_CN_4.7.0）。只读回放用；
     # 留空表示不做本地 CDN 回放。
     client_dir: str = ""
     prefs: str = "saves/server_prefs.json"

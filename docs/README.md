@@ -28,7 +28,7 @@
 
 | 文档 | 状态 | 用途 |
 |---|---|---|
-| [notes/2026-11-12-正式服抓包方案](notes/2026-11-12-正式服抓包方案.md) | 现行·方案 | **正式服抓包**（下半的权威数据来源）：三条链路、EC2B/seed 加密、`E:\LCXS\tools\official\` 工具与离线用例；**已抓到真机数据**（843 帧），§8 官方包序、§9 七处差异、§11 落地与多次真机复验 |
+| [notes/2026-11-12-正式服抓包方案](notes/2026-11-12-正式服抓包方案.md) | 现行·方案 | **正式服抓包**（下半的权威数据来源）：三条链路、EC2B/seed 加密、`tools/official/`（项目外，不随仓库分发）工具与离线用例；**已抓到真机数据**（843 帧），§8 官方包序、§9 七处差异、§11 落地与多次真机复验 |
 | [notes/2026-11-12-下半黑屏收工快照](notes/2026-11-12-下半黑屏收工快照.md) | 现行·快照 | **下半黑屏** 交接总览（2026-11-12 收工）：换半场已修好并真机通过；下半战斗本身仍黑屏，7 轮真机排掉 9 类原因；含复现命令、判据、关键 ID、下一步（Procmon）与 8 条教训。上下文压缩/换人接手从这一篇看起 |
 | [notes/2026-11-12-混沌回忆下半进场动画排查](notes/2026-11-12-混沌回忆下半进场动画排查.md) | 现行·快照 | **混沌回忆** 交接总览（2026-11-12 收工）：三路径对照真机 + LunarCore/pearl-sr 源码核对后，定位「下半卡进场动画 = 客户端只在主动 StartChallenge 时建立完整战斗状态」；老项目换半场方案在 4.7.0 不成立；下一步是 `EnterChallengeNextPhase` 或抓正式服。上下文压缩/换人接手从这一篇看起 |
 
@@ -89,13 +89,13 @@
 |---|---|---|
 | 客户端版本（默认） | 4.6.54 / `OSBETAWin4.6.54` / build `16927089` | `versions/4.6.54.toml` |
 | 客户端版本（4.7.0） | `CNPRODWin4.7.0` / build `17108910` | `versions/4.7.0.toml`，用 `--profile 4.7.0` 切换 |
-| handler | **78** | `hsr/game/handlers/*.py` 的 `router.add(...)` |
-| 单测 | **238** | `.venv\Scripts\python.exe -m unittest discover -s tests` |
+| handler | **79** | `hsr/game/handlers/*.py` 的 `router.add(...)` |
+| 单测 | **242** | `.venv\Scripts\python.exe -m unittest discover -s tests` |
 | freesr 角色/遗器/光锥 | 99 / 418 / 87 | `data/freesr-data.json` |
 | 教程/指南组/子指南 | 1269 / 864 / 1509 | `data/tutorials.json` |
 | 主线/任务/活动 | 2205 / 6018 / 347 | `data/progress.json` |
 | 终局挑战/关卡/场景/入口 | 843 / 1538 / 22 / 931 | `data/endgame.json` |
-| 忘却之庭大厅 entry / 道具 | 17 / 209（入口 100000104 有 13 个） | `data/endgame.json.lobby`（`scripts/export_endgame.py`） |
+| 忘却之庭大厅 entry / 道具 | 17 / 209（入口 100000104 有 13 个） | `data/endgame.json` 的 lobby 字段（`scripts/export_endgame.py`） |
 | 凝滞虚影关卡 | 82 | `data/stages.json` |
 | 皮肤 | 8 | `data/skins.json` |
 | ServerPrefs | 16 | `saves/server_prefs.json`（客户端会重写，数字会变） |
@@ -166,7 +166,7 @@
 - 文档内链接一律**相对当前文件**：同目录用 `./`，上级用 `../`；
   项目内文件从 `docs/` 出发是 `../../hsr/...`、`../../data/...`；
   参考工程是 `../../echium-server-main/...`；
-- 会变的绝对路径（客户端、代理、`E:\LCXS\tools`）放在**代码块或表格**里，
+- 会变的绝对路径（客户端、代理、外部工具链）放在**代码块或表格**里，
   不要做成 markdown 链接，避免迁移后失效；
 - 不要写旧项目路径（`E:\LCXS` + 旧目录名）或旧文档目录。
 
@@ -179,7 +179,7 @@
 ### 5.5 提交前自检
 
 ```powershell
-cd E:\LCXS\run\hsr-local
+cd <仓库根目录>
 .\.venv\Scripts\python.exe scripts\check_docs.py
 ```
 

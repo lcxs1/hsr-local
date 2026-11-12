@@ -55,7 +55,7 @@ if (-not $SkipRuff) {
     $cmd = Get-Command ruff -ErrorAction SilentlyContinue
     if ($cmd) { $Ruff = $cmd.Source }
     if (-not $Ruff) {
-        $candidate = 'E:\LCXS\run\echium-server-main\.venv\Scripts\ruff.exe'
+        $candidate = Join-Path $Root '.venv\Scripts\ruff.exe'
         if (Test-Path $candidate) { $Ruff = $candidate }
     }
     if ($Ruff) {
@@ -63,7 +63,7 @@ if (-not $SkipRuff) {
         & $Ruff check .
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     } else {
-        Write-Host 'ruff not found, skipped (use -SkipRuff to silence)' -ForegroundColor Yellow
+        Write-Host 'ruff not found, skipped (pip install -r requirements-dev.txt)' -ForegroundColor Yellow
     }
 }
 

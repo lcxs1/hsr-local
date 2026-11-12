@@ -1,11 +1,32 @@
+# Python
 .venv/
 __pycache__/
-*.pyc
-logs/
-saves/*.json
-saves/*.bak
-!saves/.gitkeep
-.proto_test/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
 .ruff_cache/
 
+# Runtime output
+logs/
+saves/*
+!saves/.gitkeep
+.proto_test/
+.tmp/
+.tmp-*/
+
+# Local-only config / machine artifacts
 config.tap.toml
+firefly-go-proxy-ca.crt
+
+# Data backups
+*.pre-lobby
+*.bak
+*.orig
+*.rej
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

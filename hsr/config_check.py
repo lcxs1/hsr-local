@@ -105,7 +105,7 @@ def validate(rt: Runtime) -> ConfigReport:
     if cfg.features.hotfix_auto:
         report.warnings.append(
             "features.hotfix_auto=true：缺 hotfix 条目时会向官方网关发一次 GET"
-            "（AGENTS.md §10 受限例外）"
+            "（唯一会主动联网的路径）"
         )
 
     # freesr / equipment ----------------------------------------------------

@@ -4,6 +4,9 @@
 
 ## 2026-11-12
 
+- **GitHub 发布前整理（仓库卫生 + 去机器化）**：新增 GPL-3.0 `LICENSE`、`.gitattributes`、`requirements.txt` / `requirements-dev.txt`、`saves/.gitkeep`；`.gitignore` 补齐 `.tmp*/`、`*.pre-lobby`、编辑器/系统文件；从索引移除 `data/endgame.json.pre-lobby`（1.1 MB 备份）与第三方 goproxy CA `firefly-go-proxy-ca.crt`；`config.toml` 的 `client_dir` 清空（4.7.0 本地 CDN 改为显式开启）、清掉 `AGENTS.md` 残留引用；`scripts/check.ps1` 的 ruff 查找不再写死别项目路径；README 重写为 GitHub 入口（环境要求、安装、目录结构、免责声明、许可），docs/README §3 数字更新为 242 单测 / 79 handler；`PROVENANCE.json` 去掉机器本地路径。
+  依据：上传 GitHub 前的最终整理；242 单测 + `check.ps1` + ruff + `check_docs.py` 通过。
+
 - **收工：下半黑屏交接快照 + 全天整理**：新增 [notes/2026-11-12-下半黑屏收工快照](docs/notes/2026-11-12-下半黑屏收工快照.md)——今天做完的 6 件事、唯一未解决项（下半战斗黑屏）、**9 类已排除原因（每条附验证方法）**、当前代码状态与探针开关、复现/取证命令、关键 ID、下一步（Procmon 步骤）与 8 条教训；同时更新 `docs/README` 文档地图（正式服抓包条目改成「已抓到真机数据」+ 新增快照条目）、`guide/03 §5` 交接指向。242 单测 + `check.ps1` 绿。
   依据：2026-11-12 全天（抓包 + 7 轮真机 18:57/19:17/19:26/19:32/19:41/19:46/19:57），用户决定收工。
 

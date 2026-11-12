@@ -11,35 +11,35 @@
       "source": "https://srtools.punklorde.org/api/data/changelog",
       "bytes": 1447,
       "sha256": "e636619510aa6b4fa6f1087bdc45cea3b9d3e021ddc79abd3d058ce0c19a446e",
-      "local": "E:\\LCXS\\.ego\\srtools-20261111\\changelog.json"
+      "local": "changelog.json"
     },
     {
       "name": "moc",
       "source": "https://srtools.punklorde.org/api/data/moc",
       "bytes": 3520563,
       "sha256": "b2996e23b97553463ca0a2a0c52aca5c13dd44c3d1bc96eafff15ea2770368b3",
-      "local": "E:\\LCXS\\.ego\\srtools-20261111\\moc.json"
+      "local": "moc.json"
     },
     {
       "name": "pf",
       "source": "https://srtools.punklorde.org/api/data/pf",
       "bytes": 2393470,
       "sha256": "c59a1ee186c6bfae293de79b1aa92f6583f5dfebf01e845ac19c38f9bc4f34ee",
-      "local": "E:\\LCXS\\.ego\\srtools-20261111\\pf.json"
+      "local": "pf.json"
     },
     {
       "name": "as",
       "source": "https://srtools.punklorde.org/api/data/as",
       "bytes": 13880508,
       "sha256": "89927a14f4be0667be1fd46926ea77ff9cf16e5a5ccffc6f5f60906074747244",
-      "local": "E:\\LCXS\\.ego\\srtools-20261111\\as.json"
+      "local": "as.json"
     },
     {
       "name": "peak",
       "source": "https://srtools.punklorde.org/api/data/peak",
       "bytes": 838585,
       "sha256": "4ff37003e152494e87133770a9d00e3453c7a4b7a9f93f0c53591266efd731ae",
-      "local": "E:\\LCXS\\.ego\\srtools-20261111\\peak.json"
+      "local": "peak.json"
     }
   ],
   "sha256_index": "48d1af8c48a7d99cfe91adbf8c19877c507916cfab186c85cc5d295191cd7b40"

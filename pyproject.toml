@@ -1,7 +1,9 @@
 [project]
 name = "hsr-local"
 version = "0.1.0"
-description = "Local single-player Honkai: Star Rail server emulator (4.6.54)"
+description = "Local single-player Honkai: Star Rail server emulator (4.6.54 / 4.7.0)"
+readme = "README.md"
+license = "GPL-3.0-only"
 requires-python = ">=3.13"
 dependencies = [
     "protobuf>=7.0",
@@ -9,6 +11,9 @@ dependencies = [
     "fastapi>=0.135",
     "uvicorn>=0.41",
 ]
+
+[project.optional-dependencies]
+dev = ["ruff>=0.17"]
 
 [tool.ruff]
 line-length = 100

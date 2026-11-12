@@ -498,7 +498,7 @@ def create_app(rt: Runtime) -> FastAPI:
                 rt.profile.version,
             )
         if cfg.features.hotfix_auto and not hotfix.has(version):
-            # AGENTS.md §10 唯一例外：本地缺条目时向官方网关取一次，成功即落盘。
+            # 唯一主动联网的路径：本地缺条目时向官方网关取一次，成功即落盘。
             entry = await asyncio.to_thread(
                 official.fetch_hotfix,
                 version,

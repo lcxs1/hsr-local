@@ -41,7 +41,7 @@ BANNED = {
 
 
 def md_files() -> list[Path]:
-    files = [ROOT / "README.md", ROOT / "AGENTS.md"]
+    files = [ROOT / "README.md"]
     files += sorted(DOCS.rglob("*.md"))
     unique = {p.resolve(): p for p in files if p.exists()}
     return [unique[key] for key in sorted(unique, key=lambda p: str(p))]

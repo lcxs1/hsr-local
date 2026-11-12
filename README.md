@@ -4,6 +4,9 @@ Python 写的本地单人《崩坏：星穹铁道》私服，目标客户端 **4
 （`OSBETAWin4.6.54`，build `16927089`）与 **4.7.0 CN**（`CNPRODWin4.7.0`，build `17108910`，
 `--profile 4.7.0`）。纯 Python UDP+KCP 直连，不使用 TCP shim、客户端补丁或密码门。
 
+> **免责声明**：本项目仅供学习、研究和本地调试使用，与 miHoYo / HoYoverse 无关。
+> 请使用自己合法拥有的游戏客户端，并自行确认符合当地法律与游戏条款。
+
 > **文档入口**：[docs/README.md](docs/README.md)
 > —— 阅读路径、文档地图、状态图例、关键数字和维护约定都在这里。
 >
@@ -26,14 +29,14 @@ Python 写的本地单人《崩坏：星穹铁道》私服，目标客户端 **4
 | 秘技点 / 战前 HP / 标记物品 | ✅ |
 | 任务 / 教程 / 指南 / ServerPrefs | ✅ 全标记完成 |
 | Lua 控制台、freesr 网页热更新 | ✅ |
-| 混沌回忆（MOC） | ✅ 15 层闭环；🔁 换半场 `advance=sync` 已真机；🟡 下半战斗卡进场动画、缺「物竞天择」关卡组卡 |
+| 混沌回忆（MOC） | ✅ 15 层闭环；🔁 换半场 `advance=official` 已真机；🟡 下半战斗卡进场动画、缺「物竞天择」关卡组卡 |
 | 虚构叙事（PF）/ 末日幻影（AS） | 🟡 协议已实现，待真机 |
 | 历战余响 | 🟡 协议链 + 单测，入口待真机 |
 | 异相仲裁（Peak）/ Tierce | ⬜ 未实现，数据已就绪 |
 | 掉落 / 背包结算 | ⏸ 按决定不做 |
 | 地图「导航」UI | ⏸ 数据已下发，无法自动验证 |
 
-当前规模：**238 单测 / 78 handler**，`scripts\check.ps1` 全绿。
+当前规模：**242 单测 / 79 handler**，`scripts\check.ps1` 全绿。
 数字以 [docs/README §3](docs/README.md#3-关键数字唯一事实源) 为准。
 
 > **4.7.0 CN 已真机通过**：`versions/4.7.0.toml` + 本地 CDN 回放（`features.local_cdn`）+
@@ -41,17 +44,35 @@ Python 写的本地单人《崩坏：星穹铁道》私服，目标客户端 **4
 > 遗留：4.7 新皮肤「群星乐透」未解锁、深渊未测。结论/证据见
 > [docs/reference/05-4.7.0兼容性实测](docs/reference/05-4.7.0兼容性实测.md) §5.1。
 
+## 环境要求
+
+| 项 | 要求 |
+|---|---|
+| 系统 | Windows 10/11（`run.ps1` / 真机脚本按 Windows 写；服务端代码本身不依赖 Windows） |
+| Python | **3.13+**（本仓库在 3.14 上跑通 242 单测） |
+| 客户端 | 4.6.54（`OSBETAWin4.6.54`）或 4.7.0 CN（`CNPRODWin4.7.0`） |
+| 代理 | 能把登录域名转到 `127.0.0.1:21000` 的 HTTPS 代理（例如 firefly-go-proxy） |
+
 ## 快速开始
 
 ```powershell
-cd E:\LCXS\run\hsr-local
+git clone https://github.com/<your-account>/hsr-local.git
+cd hsr-local
+
+py -3.13 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -U pip
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 
 # 1) 启动服务端
 .\run.ps1                 # 或 .\run.bat / .\.venv\Scripts\python.exe -m hsr
+```
 
+```powershell
 # 2) 另一个窗口：代理 + 游戏（UAC 点“是”）
-cd E:\SiFu\HSRSiFu
-Start-Process .\firefly-go-proxy.exe -ArgumentList '-e','E:\SiFu\HSRSiFu\StarRail_4.6.54\StarRail.exe','-p','9978' -Verb RunAs
+#    把 $Client 换成你的客户端目录
+$Client = 'X:\HSRSiFu'
+Start-Process "$Client\firefly-go-proxy.exe" -ArgumentList `
+  '-e', "$Client\StarRail_4.6.54\StarRail.exe", '-p', '9978' -Verb RunAs
 ```
 
 正常应看到：
@@ -65,12 +86,15 @@ Start-Process .\firefly-go-proxy.exe -ArgumentList '-e','E:\SiFu\HSRSiFu\StarRai
 代理需要把登录域名指到 `127.0.0.1:21000`，系统代理指向 `127.0.0.1:9978`。
 停在 HoYoPass 登录窗、一直不连接，通常是代理没有拦截 HTTPS。
 
+首次运行会自动创建 `saves/` 和 `logs/`；uid、角色名、端口、默认队伍都在
+[config.toml](config.toml)。4.7.0 CN 还要把 `[paths].client_dir` 指向客户端安装目录，
+并把 `[features].local_cdn` 设为 `true`（本地 CDN 回放），详见
+[docs/reference/05](docs/reference/05-4.7.0兼容性实测.md)。
+
 ## 常用命令
 
 ```powershell
-cd E:\LCXS\run\hsr-local
-
-# 全量回归：238 单测 + 离线核心链 + 挑战上下半链 + proto 检查 + ruff + 文档检查
+# 全量回归：242 单测 + 离线核心链 + 挑战上下半链 + proto 检查 + ruff + 文档检查
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\check.ps1
 
 # 真机测试：起服务端/代理/游戏、截图、出报告
@@ -85,8 +109,28 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\game_test.ps1
 # 离线核心链路（不启动客户端）
 .\.venv\Scripts\python.exe scripts\replay_flows.py
 
-# 解码冻结的 4.6.54 抓包
-python -m hsr.tools.decode --capture E:\LCXS\tools\golden\4.6.54\capture.bin --list
+# 解码冻结的 4.6.54 抓包（抓包文件不在仓库内）
+python -m hsr.tools.decode --capture <抓包目录>\capture.bin --list
+```
+
+## 目录结构
+
+```text
+hsr/            服务端代码
+  net/          UDP / KCP / 握手 / 帧 / 会话
+  dispatch/     HTTP 登录链 / hotfix / 本地 CDN
+  game/         handlers + services（角色、场景、战斗、终局）
+  protocol/     proto 注册、编解码、生成代码
+  tools/        解码 / 探针 / Lua 控制台
+proto/          StarRail.proto、CmdId.json、描述符
+data/           静态数据（角色、关卡、终局、教程）
+versions/       客户端版本 profile（4.6.54 / 4.7.0）
+tests/          单元测试（242 个）
+scripts/        回归、真机测试、数据导出
+docs/           指南 / 设计 / 参考 / 笔记
+lua/            Lua 控制台脚本
+saves/          运行时存档（不入库）
+logs/           运行时日志（不入库）
 ```
 
 ## 文档
@@ -110,8 +154,10 @@ python -m hsr.tools.decode --capture E:\LCXS\tools\golden\4.6.54\capture.bin --l
 ## 已知限制
 
 - **单客户端 / 单场景**：新握手替换旧会话；普通传送仍留在 20313。
-- **挑战链未收尾（2026-11-11）**：下半进战斗黑屏（客户端约 16 s 后自行结算）；
-  忘却之庭右侧缺「物竞天择」关卡组卡；虚构叙事/末日幻影锁定且点开空白；丹恒腾荒技能释放失败。
+- **混沌回忆下半仍黑屏**：换半场已按正式服包序实现并真机通过；下半战斗进场后黑屏，
+  客户端约 9 s 后自行结算（`turns=0`）。9 类已排除原因与下一步见
+  [docs/notes/2026-11-12-下半黑屏收工快照](docs/notes/2026-11-12-下半黑屏收工快照.md)。
+- **忘却之庭右侧缺「物竞天择」关卡组卡**；虚构叙事/末日幻影锁定且点开空白；丹恒腾荒技能释放失败。
   排查方向见 [docs/design/03 §6](docs/design/03-终局玩法.md) 与 [docs/guide/03 §5](docs/guide/03-交接与排障.md)。
 - **地图导航 UI**：数据已下发，但客户端管理员进程无法自动点开，未真机确认。
 - **掉落 / 背包结算**：明确不做。
@@ -119,4 +165,12 @@ python -m hsr.tools.decode --capture E:\LCXS\tools\golden\4.6.54\capture.bin --l
 
 完整清单见 [docs/guide/03-交接与排障.md](docs/guide/03-交接与排障.md) §4。
 
+## 参与
 
+- 提交前跑 `scripts\check.ps1`（单测 + proto + 回放 + 文档 + ruff）。
+- 文档里的 handler/单测/数据条数只在 [docs/README §3](docs/README.md#3-关键数字唯一事实源) 维护。
+- 真机验证结论请带日期和 `logs/test/<run>.report.md` 报告名。
+
+## License
+
+GPL-3.0-only，见 [LICENSE](LICENSE)。
