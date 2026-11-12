@@ -4,6 +4,14 @@
 
 ## 2026-11-12
 
+- **正式服抓包链路做完并离线验证（下一步的数据来源）**：新增 `E:\LCXS\tools\official\`：`mirror.py`（firefly 反代目标，透传官方登录链、只改写 `query_gateway` 的 ip/port 指向本地中继）、`relay.py`（UDP 中继 + 用 EC2B/ `secret_key_seed` 实时解密）、`report.py`、`run.ps1`、`hsrwire.py`。MT19937-64 与 DanhengServer 原实现用 .NET 逐值对齐，端到端用例用「假官方服加密会话」验证到 `capture.bin` 可被 `hsr.tools.decode` 直读（13 用例全绿）。方案与判据见 [docs/notes/2026-11-12-正式服抓包方案](docs/notes/2026-11-12-正式服抓包方案.md)。实测正式服当前维护中（`query_gateway` 回 `retcode=3 / client version not match`），故尚无真机数据。
+  依据：DanhengServer `Common/Util/Security/*` + 2026-11-12 官方 `query_gateway` 实测；用户决定用正式服做参考。
+
+- **混沌回忆下半卡进场动画排查（三路径对照 + 参考源码核对）**：真机坐实「上半 turns=1 / 下半 turns=0」，探针直推上下半都 turns=0、`advance=client` 客户端重打上半，逐条排除换半场方式 / 数据 / 包时序（对齐 LunarCore 时序也无效，已回滚）；核对 LunarCore `advanceStage`（纯服务端推、无 `EnterChallengeNextPhase` handler）与 pearl-sr `FirstNode`（靠 GM 命令手动切节点）后，定位根因为「客户端只在主动发 StartChallenge 时建立完整战斗状态，老项目方案在 4.7.0 不成立」。结论写入 [docs/notes/2026-11-12-混沌回忆下半进场动画排查](docs/notes/2026-11-12-混沌回忆下半进场动画排查.md)，下一步是 `EnterChallengeNextPhaseCsReq` 或抓正式服。文档数字 231→238 单测（README / docs/README §3 / guide/02 / guide/03）。
+  依据：2026-11-12 真机日志 `logs/test/probe-20261112*.server.log` + LunarCore/pearl-sr 源码，用户要求先写文档再定下一步。
+
+## 2026-11-12
+
 - **代码审查后按优先级修复（P0/P1/P2）**：按 [docs/notes/2026-11-12-代码审查.md](docs/notes/2026-11-12-代码审查.md) 修掉 1 高危 + 6 中危 + 一批低危。P0：`LineupState.set_slot` 钳制 `0<=slot<team_size`（原来对客户端可控 slot 无上界，`slot=2^31-1` 会 append 数十亿个 0 → OOM；负索引静默覆盖末位也一并修），`on_replace/on_join/on_change_leader` 对越界 slot/leader 记日志并忽略。P1：`router.dispatch` 把回包 `session.send(rsp)` 纳入 try（原来编码失败会永久杀死 session worker）+ `session._run` 单包异常后 continue 而非退出循环；`on_scene_map_info` 数量上限 64（防响应放大）；`challenge.battle_info` 轮次为 0 不再重置满轮；`save.flush` 时间戳移到写成功后 + `os.fsync`。P2：阵亡数 `phase_start_dead_avatars` 重打回退；`next_battle_id` 归一化 >=1；删 `on_enter_scene` 死代码；`codec.read_varint` 边界检查；`check_docs` 盘符 `C:` 误判 scheme 修复；kcp 裸 `except` 改 `except Exception`；清 AGENTS 残留 docstring；非回环监听启动警告；回放队伍断言改全量比较 + `replay` cfg 深拷贝与 `names.index` 防御；`freesr_sync._write` OSError 兜底；`decode` 复用 `frame.parse` 校验帧长。新增 `tests/test_hardening.py`（7 例）。**238 单测 + `check.ps1` 全绿（ruff 过）**。
   依据：2026-11-12 代码审查报告，用户要求按优先级修复。
 

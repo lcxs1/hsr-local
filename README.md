@@ -33,7 +33,7 @@ Python 写的本地单人《崩坏：星穹铁道》私服，目标客户端 **4
 | 掉落 / 背包结算 | ⏸ 按决定不做 |
 | 地图「导航」UI | ⏸ 数据已下发，无法自动验证 |
 
-当前规模：**231 单测 / 78 handler**，`scripts\check.ps1` 全绿。
+当前规模：**238 单测 / 78 handler**，`scripts\check.ps1` 全绿。
 数字以 [docs/README §3](docs/README.md#3-关键数字唯一事实源) 为准。
 
 > **4.7.0 CN 已真机通过**：`versions/4.7.0.toml` + 本地 CDN 回放（`features.local_cdn`）+
@@ -70,7 +70,7 @@ Start-Process .\firefly-go-proxy.exe -ArgumentList '-e','E:\SiFu\HSRSiFu\StarRai
 ```powershell
 cd E:\LCXS\run\hsr-local
 
-# 全量回归：231 单测 + 离线核心链 + 挑战上下半链 + proto 检查 + ruff + 文档检查
+# 全量回归：238 单测 + 离线核心链 + 挑战上下半链 + proto 检查 + ruff + 文档检查
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\check.ps1
 
 # 真机测试：起服务端/代理/游戏、截图、出报告

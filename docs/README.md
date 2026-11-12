@@ -28,7 +28,8 @@
 
 | 文档 | 状态 | 用途 |
 |---|---|---|
-| [notes/2026-11-11-混沌回忆状态快照](notes/2026-11-11-混沌回忆状态快照.md) | 现行·快照 | **混沌回忆** 交接总览：今晚修了什么、`advance=sync` 换半场为什么现在能用、剩下的「下半战斗卡进场动画」已排除项与下一步探针、日志/截图判据、其它搁置项。上下文压缩/换人接手从这一篇看起 |
+| [notes/2026-11-12-正式服抓包方案](notes/2026-11-12-正式服抓包方案.md) | 现行·方案 | **正式服抓包**（下半卡进场动画的权威数据来源）：三条链路、EC2B/seed 加密、`E:\LCXS\tools\official\` 工具与 13 个离线用例、跑法与四条判据；当前正式服维护中，尚无真机数据 |
+| [notes/2026-11-12-混沌回忆下半进场动画排查](notes/2026-11-12-混沌回忆下半进场动画排查.md) | 现行·快照 | **混沌回忆** 交接总览（2026-11-12 收工）：三路径对照真机 + LunarCore/pearl-sr 源码核对后，定位「下半卡进场动画 = 客户端只在主动 StartChallenge 时建立完整战斗状态」；老项目换半场方案在 4.7.0 不成立；下一步是 `EnterChallengeNextPhase` 或抓正式服。上下文压缩/换人接手从这一篇看起 |
 
 ### 2.1 入口与实操
 
@@ -88,7 +89,7 @@
 | 客户端版本（默认） | 4.6.54 / `OSBETAWin4.6.54` / build `16927089` | `versions/4.6.54.toml` |
 | 客户端版本（4.7.0） | `CNPRODWin4.7.0` / build `17108910` | `versions/4.7.0.toml`，用 `--profile 4.7.0` 切换 |
 | handler | **78** | `hsr/game/handlers/*.py` 的 `router.add(...)` |
-| 单测 | **231** | `.venv\Scripts\python.exe -m unittest discover -s tests` |
+| 单测 | **238** | `.venv\Scripts\python.exe -m unittest discover -s tests` |
 | freesr 角色/遗器/光锥 | 99 / 418 / 87 | `data/freesr-data.json` |
 | 教程/指南组/子指南 | 1269 / 864 / 1509 | `data/tutorials.json` |
 | 主线/任务/活动 | 2205 / 6018 / 347 | `data/progress.json` |
