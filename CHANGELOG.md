@@ -4,6 +4,9 @@
 
 ## 2026-11-12
 
+- **正式服抓包成功，混沌回忆下半场的官方答案拿到**：2026-11-12 17:27 用 CN 4.7.0 客户端真机抓了一轮混沌回忆第 1 层，843 帧 / 381 条命令全解开。结论：**下半是真打的（`stt.turns=5`、cost 33.3s）**，官方**不发** `EnterChallengeNextPhaseCsReq`、客户端也**不重发** `StartChallengeCsReq`；换半场是**原地换实体组**（删上半怪 group 9 → 删/加 4 个角色实体 → 4 条 `SyncLineupNotify` → `ChallengeLineupNotify` → 用 `group_info` 声明 group 10），**全程不重建场景**，且 `PVEBattleResultScRsp` **最后**才发。完整包序与"与现实现的 7 处差异"写进 [docs/notes/2026-11-12-正式服抓包方案](docs/notes/2026-11-12-正式服抓包方案.md) §8/§9。
+  依据：`E:\LCXS\tools\captures\official-20261112-1727`（capture.bin / raw.jsonl / challenge.md）；首版因为漏了 EC2B `KeyScramble` 一帧没解开，已用 `redecode.py` 离线重解并补上回归用例。
+
 - **正式服抓包链路做完并离线验证（下一步的数据来源）**：新增 `E:\LCXS\tools\official\`：`mirror.py`（firefly 反代目标，透传官方登录链、只改写 `query_gateway` 的 ip/port 指向本地中继）、`relay.py`（UDP 中继 + 用 EC2B/ `secret_key_seed` 实时解密）、`report.py`、`run.ps1`、`hsrwire.py`。MT19937-64 与 DanhengServer 原实现用 .NET 逐值对齐，端到端用例用「假官方服加密会话」验证到 `capture.bin` 可被 `hsr.tools.decode` 直读（13 用例全绿）。方案与判据见 [docs/notes/2026-11-12-正式服抓包方案](docs/notes/2026-11-12-正式服抓包方案.md)。实测正式服当前维护中（`query_gateway` 回 `retcode=3 / client version not match`），故尚无真机数据。
   依据：DanhengServer `Common/Util/Security/*` + 2026-11-12 官方 `query_gateway` 实测；用户决定用正式服做参考。
 
