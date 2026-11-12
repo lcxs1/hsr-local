@@ -10,32 +10,30 @@ Python 写的本地单人《崩坏：星穹铁道》私服，目标客户端 **4
 > **接手先读**：[docs/guide/03-交接与排障.md](docs/guide/03-交接与排障.md)
 > —— 已验证事实、踩过的坑、已知限制、下一轮任务。
 >
-> **协作规范**：[AGENTS.md](AGENTS.md) —— 唯一硬约束「不伪造验证」；默认直接做、做完说；只有删不可重建数据前才问。
->
 > **变更日志**：[CHANGELOG.md](CHANGELOG.md) —— 每次合入一行，不写进 docs。
 
-## 当前状态（2026-11-11）
+## 当前状态（2026-11-12）
 
 | 模块 | 状态 |
 |---|---|
 | UDP + KCP（`u32_le_token`，28B 头）、握手、帧 | ✅ 4.6.54 真机 |
 | HTTP dispatch / SDK JSON / hotfix / 公告关闭 | ✅ |
 | 登录（`5/74/46/9`）+ 心跳（`45`） | ✅ |
-| 角色 / 光锥 / 遗器（freesr 99/418/87）、背包 | ✅ |
+| 角色 / 遗器 / 光锥（freesr 99/418/87）、背包 | ✅ |
 | 阵容 / 领队 / 多命途 / 皮肤 | ✅ 真机验证 |
 | 固定场景 20313 + 移动 / 地图数据 / 传送 / section | ✅ |
 | 凝滞虚影 + 10 BOSS + 「再来一次」 | ✅ 真机可打、可结算、可连续再战 |
 | 秘技点 / 战前 HP / 标记物品 | ✅ |
 | 任务 / 教程 / 指南 / ServerPrefs | ✅ 全标记完成 |
 | Lua 控制台、freesr 网页热更新 | ✅ |
-| 混沌回忆（MOC） | ✅ 15 层闭环；🔁 2026-11-11 深夜重写阶段切换（待真机）；🟡 忘却之庭缺「物竞天择」关卡组卡 |
+| 混沌回忆（MOC） | ✅ 15 层闭环；🔁 换半场 `advance=sync` 已真机；🟡 下半战斗卡进场动画、缺「物竞天择」关卡组卡 |
 | 虚构叙事（PF）/ 末日幻影（AS） | 🟡 协议已实现，待真机 |
 | 历战余响 | 🟡 协议链 + 单测，入口待真机 |
 | 异相仲裁（Peak）/ Tierce | ⬜ 未实现，数据已就绪 |
 | 掉落 / 背包结算 | ⏸ 按决定不做 |
 | 地图「导航」UI | ⏸ 数据已下发，无法自动验证 |
 
-当前规模：**227 单测 / 78 handler**，`scripts\check.ps1` 全绿。
+当前规模：**231 单测 / 78 handler**，`scripts\check.ps1` 全绿。
 数字以 [docs/README §3](docs/README.md#3-关键数字唯一事实源) 为准。
 
 > **4.7.0 CN 已真机通过**：`versions/4.7.0.toml` + 本地 CDN 回放（`features.local_cdn`）+
@@ -72,7 +70,7 @@ Start-Process .\firefly-go-proxy.exe -ArgumentList '-e','E:\SiFu\HSRSiFu\StarRai
 ```powershell
 cd E:\LCXS\run\hsr-local
 
-# 全量回归：227 单测 + 离线核心链 + 挑战上下半链 + proto 检查 + ruff + 文档检查
+# 全量回归：231 单测 + 离线核心链 + 挑战上下半链 + proto 检查 + ruff + 文档检查
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\check.ps1
 
 # 真机测试：起服务端/代理/游戏、截图、出报告

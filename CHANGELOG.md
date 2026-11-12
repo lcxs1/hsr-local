@@ -2,6 +2,14 @@
 
 一行一条：日期 / 改了什么 / 为什么。原理、协议、数据细节写进 `docs/`，这里只记“什么时候动过什么”。
 
+## 2026-11-12
+
+- **代码审查后按优先级修复（P0/P1/P2）**：按 [docs/notes/2026-11-12-代码审查.md](docs/notes/2026-11-12-代码审查.md) 修掉 1 高危 + 6 中危 + 一批低危。P0：`LineupState.set_slot` 钳制 `0<=slot<team_size`（原来对客户端可控 slot 无上界，`slot=2^31-1` 会 append 数十亿个 0 → OOM；负索引静默覆盖末位也一并修），`on_replace/on_join/on_change_leader` 对越界 slot/leader 记日志并忽略。P1：`router.dispatch` 把回包 `session.send(rsp)` 纳入 try（原来编码失败会永久杀死 session worker）+ `session._run` 单包异常后 continue 而非退出循环；`on_scene_map_info` 数量上限 64（防响应放大）；`challenge.battle_info` 轮次为 0 不再重置满轮；`save.flush` 时间戳移到写成功后 + `os.fsync`。P2：阵亡数 `phase_start_dead_avatars` 重打回退；`next_battle_id` 归一化 >=1；删 `on_enter_scene` 死代码；`codec.read_varint` 边界检查；`check_docs` 盘符 `C:` 误判 scheme 修复；kcp 裸 `except` 改 `except Exception`；清 AGENTS 残留 docstring；非回环监听启动警告；回放队伍断言改全量比较 + `replay` cfg 深拷贝与 `names.index` 防御；`freesr_sync._write` OSError 兜底；`decode` 复用 `frame.parse` 校验帧长。新增 `tests/test_hardening.py`（7 例）。**238 单测 + `check.ps1` 全绿（ruff 过）**。
+  依据：2026-11-12 代码审查报告，用户要求按优先级修复。
+
+- **去除 AGENTS.md 协作约束（彻底放开）**：删除 `AGENTS.md`，清理 README/docs 里对它全部 16 处引用——协作规范行、人机协作规范 v3 行、A/B 口径、数据快车道、「删存档先问」等一律改成直接陈述事实，不再引规则。同时把过期数字统一改成实际值（单测 227→231、`guide/03` 规模 193/74→231/78、`guide/02` unittest 221→231）、README 的 freesr 数值标签顺序纠正（光锥 87 / 遗器 418）、混沌回忆「待真机/未真机」改「已真机」。`check_docs.py` 0 问题、231 单测绿。
+  依据：用户决定去除 AGENTS.md 限制、彻底放开；先跑 `check_docs.py` 并核对实际单测/数据条数。
+
 ## 2026-11-11
 
 - **收工：交接快照重写**（[notes/2026-11-11-混沌回忆状态快照](docs/notes/2026-11-11-混沌回忆状态快照.md)）：改成一份完整交接文档 —— 现状一句话、代码在做什么（`advance` 各模式已知结论）、今晚修掉的 6 条（症状→根因→修法→证据）、**唯一未解决项**（下半战斗卡进场动画：两个实验的失败数据 + 已排除项 + `/debug/challenge?second=1` 探针 + 3 个备选改法）、复测命令与判据、日志/截图判据、关键 ID、其它搁置项、9 条教训。`docs/README`、`guide/03 §5`、`design/04` 顶部同步指向。

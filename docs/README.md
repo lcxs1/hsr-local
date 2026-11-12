@@ -1,6 +1,6 @@
 # docs · 文档索引
 
-> **状态**：现行（索引本身）　**适用版本**：4.6.54（build 16927089）/ 4.7.0（build 17108910）　**最后修订**：2026-11-11
+> **状态**：现行（索引本身）　**适用版本**：4.6.54（build 16927089）/ 4.7.0（build 17108910）　**最后修订**：2026-11-12
 
 `hsr-local` 的全部文档都在本目录。本页只做四件事：**告诉你该读哪篇、哪篇可信、数字以谁为准、改文档守什么规矩**。
 
@@ -35,7 +35,6 @@
 | 文档 | 状态 | 用途 |
 |---|---|---|
 | [../README.md](../README.md) | 现行 | 项目简介、状态表、快速开始、常用命令 |
-| [../AGENTS.md](../AGENTS.md) | 现行 | 人机协作规范 v3：唯一硬约束「不伪造验证」、默认直接做、仅删不可重建数据前问、证据即完成、A/B 口径 |
 | [guide/01-运行与配置](guide/01-运行与配置.md) | 现行 | 启动链路、`config.toml` 全表、数据/存档、目录结构、「改哪里」 |
 | [guide/02-测试与回归](guide/02-测试与回归.md) | 现行 | `game_test.ps1`、手动测试项、报告怎么读、常见问题 |
 | [guide/03-交接与排障](guide/03-交接与排障.md) | 现行 | 已验证事实与证据、踩过的坑、已知限制、下一轮任务 |
@@ -76,20 +75,20 @@
 | [notes/社区做法与提速方案](notes/社区做法与提速方案.md) | 七套参考工程的做法对比、可移植做法、30 天三条主线与可批准工作包 |
 | [notes/规则修订-2026-11-11](notes/规则修订-2026-11-11.md) | v1 协作规则为什么拖慢开发：证据、七条阻碍、v1→v2 改动映射、未决事项 |
 
-笔记按 [AGENTS §4](../AGENTS.md) 管理：可以粗糙、可以自我推翻，**不当事实源**；结论回填现行文档后才算数。
+笔记可以粗糙、可以自我推翻，**不当事实源**；结论回填现行文档后才算数。
 
 ---
 
 ## 3. 关键数字（唯一事实源）
 
-最后核对：**2026-11-11**，由 `scripts/check.ps1` / 实际运行得出。
+最后核对：**2026-11-12**，由 `scripts/check.ps1` / 实际运行得出。
 
 | 指标 | 值 | 怎么来的 |
 |---|---|---|
 | 客户端版本（默认） | 4.6.54 / `OSBETAWin4.6.54` / build `16927089` | `versions/4.6.54.toml` |
 | 客户端版本（4.7.0） | `CNPRODWin4.7.0` / build `17108910` | `versions/4.7.0.toml`，用 `--profile 4.7.0` 切换 |
 | handler | **78** | `hsr/game/handlers/*.py` 的 `router.add(...)` |
-| 单测 | **227** | `.venv\Scripts\python.exe -m unittest discover -s tests` |
+| 单测 | **231** | `.venv\Scripts\python.exe -m unittest discover -s tests` |
 | freesr 角色/遗器/光锥 | 99 / 418 / 87 | `data/freesr-data.json` |
 | 教程/指南组/子指南 | 1269 / 864 / 1509 | `data/tutorials.json` |
 | 主线/任务/活动 | 2205 / 6018 / 347 | `data/progress.json` |
@@ -229,7 +228,7 @@ cd E:\LCXS\run\hsr-local
 |---|---|
 | 新增 | `versions/4.7.0.toml`（`CNPRODWin4.7.0`，复用 4.6.54 proto 快照） |
 | 新增 | 本地 CDN 回放：`hsr/dispatch/local_cdn.py` + `features.local_cdn` + `paths.client_dir` + `/cdn/**` |
-| 新增 | 官方网关补 hotfix（规则的联网限制例外，现见 [AGENTS §6](../AGENTS.md)）：`hsr/dispatch/official.py` + `features.hotfix_auto` |
+| 新增 | 官方网关补 hotfix：`hsr/dispatch/official.py` + `features.hotfix_auto` |
 | 新增 | `hsr/game/handlers/archive.py`：`GetArchiveData` / `GetUpdatedArchiveData` 返回空但存在的子消息 |
 | 同步 | `data/hotfix.json`（`CNPRODWin4.7.0` 本地条目）、`scripts/game_test.ps1`（`-Client 4.7.0`）、[guide/01](guide/01-运行与配置.md) §3/§4、[design/01](design/01-网络与登录.md) §2.3、[guide/03](guide/03-交接与排障.md) §3/§5、[reference/05](reference/05-4.7.0兼容性实测.md) §5 |
 | 修正 | §3 数字：handler=74、tests=181 |
