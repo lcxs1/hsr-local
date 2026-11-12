@@ -7,6 +7,9 @@
 - **GitHub 发布前整理（仓库卫生 + 去机器化）**：新增 GPL-3.0 `LICENSE`、`.gitattributes`、`requirements.txt` / `requirements-dev.txt`、`saves/.gitkeep`；`.gitignore` 补齐 `.tmp*/`、`*.pre-lobby`、编辑器/系统文件；从索引移除 `data/endgame.json.pre-lobby`（1.1 MB 备份）与第三方 goproxy CA `firefly-go-proxy-ca.crt`；`config.toml` 的 `client_dir` 清空（4.7.0 本地 CDN 改为显式开启）、清掉 `AGENTS.md` 残留引用；`scripts/check.ps1` 的 ruff 查找不再写死别项目路径；README 重写为 GitHub 入口（环境要求、安装、目录结构、免责声明、许可），docs/README §3 数字更新为 242 单测 / 79 handler；`PROVENANCE.json` 去掉机器本地路径。
   依据：上传 GitHub 前的最终整理；242 单测 + `check.ps1` + ruff + `check_docs.py` 通过。
 
+- **发布前隐私清理**：审计发现 4.6.54 基线样例里有真实玩家昵称/签名/UID，且 Git 历史作者邮箱为真实邮箱。已把样例中的 `nickname` / `signature` / `uid` 脱敏为示例值；用 `git filter-repo` 重写全部 49 个提交，作者/提交邮箱统一为 `lcxs@users.noreply.github.com`，并把 `data/endgame.json.pre-lobby` 与第三方 goproxy CA 从历史移除。当前树与全部历史均检索不到旧邮箱、昵称、签名或 UID。
+  依据：上传 GitHub 前审计；`git fsck`、`check_docs` 通过。
+
 - **收工：下半黑屏交接快照 + 全天整理**：新增 [notes/2026-11-12-下半黑屏收工快照](docs/notes/2026-11-12-下半黑屏收工快照.md)——今天做完的 6 件事、唯一未解决项（下半战斗黑屏）、**9 类已排除原因（每条附验证方法）**、当前代码状态与探针开关、复现/取证命令、关键 ID、下一步（Procmon 步骤）与 8 条教训；同时更新 `docs/README` 文档地图（正式服抓包条目改成「已抓到真机数据」+ 新增快照条目）、`guide/03 §5` 交接指向。242 单测 + `check.ps1` 绿。
   依据：2026-11-12 全天（抓包 + 7 轮真机 18:57/19:17/19:26/19:32/19:41/19:46/19:57），用户决定收工。
 
