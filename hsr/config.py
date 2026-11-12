@@ -98,6 +98,13 @@ class EndgameSettings(BaseModel):
     #             原地删旧怪 → 换角色实体 → 3×SyncLineupNotify → ChallengeLineupNotify
     #             → 声明下半的组 → 移动通知，12 个包全在结果包之前；不重建场景
     advance: Literal["official", "declare", "sync", "inplace", "scene", "client"] = "official"
+    # 换半场时怎么处理**场上角色实体**（advance = official 用；真机 A/B 一次只改一个）：
+    #   renumber = 删旧 id + 加新 id（官方抓包的做法：1048579-82 → 1048593-96）
+    #   reuse    = 删掉，再用同一批 id 加回来
+    #   skip     = 完全不动场上角色实体，只切阵容/迷宫组
+    # 2026-11-12 真机：换 id 之后客户端的控制器可能还指着旧 id，怀疑这是下半进不去
+    # 战斗的原因（换半场 10 个包其余部分已与官方逐字段一致）。
+    avatar_swap: Literal["renumber", "reuse", "skip"] = "renumber"
     # 忘却之庭大厅报哪些场景组（客户端按“已加载组”创建地图 NPC）：
     #   all      = 全部道具（含车厢装饰）
     #   crystals = 只报可交互展台（prop_id >= 100000）

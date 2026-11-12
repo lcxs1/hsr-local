@@ -884,11 +884,17 @@ def _advance_official(session, state: ChallengeState, phase: Phase) -> Transitio
                 refresh_type=scene_service.GROUP_REFRESH_REFRESH,
             )
         )
-    # #597 换场上角色实体：删旧 id、按新 id 加回来（同一个 GroupRefreshInfo 里）
+    # #597 换场上角色实体：删旧 id、按新 id 加回来（同一个 GroupRefreshInfo 里）。
+    # 换 id 的方式由 [endgame] avatar_swap 控制（真机 A/B）：
+    #   renumber = 新 id（官方做法）、reuse = 同一批 id、skip = 不动实体。
     team_size = int(getattr(session.runtime.cfg.world, "team_size", 4) or 4)
-    session.scene.avatar_base = old_avatar_base + max(len(previous.team), team_size)
+    avatar_swap = str(getattr(session.runtime.cfg.endgame, "avatar_swap", "renumber")).lower()
+    if avatar_swap == "renumber":
+        session.scene.avatar_base = old_avatar_base + max(len(previous.team), team_size)
+    else:
+        session.scene.avatar_base = old_avatar_base
     new_avatars = scene_service.avatar_entities(session, phase.team)
-    if old_avatar_ids or new_avatars:
+    if avatar_swap != "skip" and (old_avatar_ids or new_avatars):
         before.append(
             scene_service.group_refresh_notify(
                 session,

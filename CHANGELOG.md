@@ -4,6 +4,9 @@
 
 ## 2026-11-12
 
+- **下半黑屏第五轮：把「换角色实体 id」做成 A/B 开关，先按 skip 跑**：19:32 真机（结果回包已按官方补齐）仍是两层同症；同时拿到客户端施放包的字段（`cast=21 hit=[] assist=[1010] attacked_by=5`，上半是 `cast=15 assist=[1000] attacked_by=1`）——**客户端确实把下半的怪当成可打目标**，施放包没问题。剩下的可疑点收敛到换半场里唯一还会动**客户端状态**的一步：删掉角色实体 1-4 再加 5-8。新增 `[endgame] avatar_swap = renumber|reuse|skip`（默认 renumber = 官方做法），`config.toml` 先设 skip 做 A/B；单测/回放固定 renumber，不受探针影响。242 单测 + check.ps1 绿，真机待复验。
+  依据：logs/test/test-20261112-193244.packets.log 的 `cast skill req` 行 + 官方抓包 #604。
+
 - **下半战斗黑屏第四轮：结果回包按官方补齐**：19:26 真机（资源版本回显已生效）仍是两层同症（上半 turns=1、下半 turns=0 + 9 s）。复盘发现一个结构性不对称：**官方 `PVEBattleResultScRsp` 是 1827 字节并带整份 `battle_avatar_list` + `check_identical`，我们只回 4 个字段**。挑战战斗用的是额外阵容（LineupChallenge/2），客户端要靠这份数据给该阵容收尾——第一场战斗本身能打（不依赖它），第二场进不去（依赖第一场已正确收尾），正好解释「换半场怎么改都没用、只有第二场失败」。`handlers/battle.on_pve_result` 现在把该场 `battle_info.battle_avatar_list` 回填进结果包并置 `check_identical=true`。另在 `on_cast_skill` 加一条 debug 日志（cast/hit/assist/attacked_by），下一轮 packets.log 就能看到客户端施放包到底带了什么。242 单测 + check.ps1 绿，真机待复验。
   依据：官方抓包 #604 与现实现逐字段对比；logs/test/test-20261112-192639.*（两层 FAIL）。
 

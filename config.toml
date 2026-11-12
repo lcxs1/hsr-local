@@ -99,6 +99,12 @@ unlock_all = true
 #   inplace = 同场景原地换组（逐实体 patch，4.7.0 客户端 NRE，仅 A/B）
 #   scene   = 不发 SyncServerSceneChangeNotify，直接推新 SceneInfo（A/B）
 #   client  = 只回战斗结果，等客户端自己发 StartChallenge（pearl 流程）
+# 换半场时怎么处理场上角色实体（advance = official 生效，真机 A/B 一次只改一个）：
+#   renumber = 删旧 id + 加新 id（官方抓包做法）
+#   reuse    = 删掉再用同一批 id 加回来
+#   skip     = 完全不动场上角色实体，只切阵容/迷宫组
+# 2026-11-12 19:34 真机：换 id 之后下半仍然进不去战斗，先改成 skip 做 A/B。
+avatar_swap = "skip"
 # 2026-11-12 正式服抓包（同版本客户端）：官方换半场不重建场景，且换半场的 12 个包
 # 全部发在 PVEBattleResultScRsp **之前**——sync/declare 都把顺序做反了。所以默认
 # 改成 official；真机验证不通过时先改回 sync 再对照 §8 的包序排查。

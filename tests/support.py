@@ -37,6 +37,7 @@ def build_runtime(tmp: Path) -> Runtime:
     cfg = AppConfig.load()
     # 单测不跟随 config.toml 里的真机探针开关（每次探针都会改它们）。
     cfg.endgame.advance = "inplace"
+    cfg.endgame.avatar_swap = "renumber"  # 真机 A/B 探针不参与单测
     cfg.endgame.lobby_entry = 0
     cfg.endgame.lobby_props = "all"
     cfg.endgame.lobby_grace_seconds = 0.0
