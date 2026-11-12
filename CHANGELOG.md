@@ -4,6 +4,9 @@
 
 ## 2026-11-12
 
+- **下半战斗黑屏第四轮：结果回包按官方补齐**：19:26 真机（资源版本回显已生效）仍是两层同症（上半 turns=1、下半 turns=0 + 9 s）。复盘发现一个结构性不对称：**官方 `PVEBattleResultScRsp` 是 1827 字节并带整份 `battle_avatar_list` + `check_identical`，我们只回 4 个字段**。挑战战斗用的是额外阵容（LineupChallenge/2），客户端要靠这份数据给该阵容收尾——第一场战斗本身能打（不依赖它），第二场进不去（依赖第一场已正确收尾），正好解释「换半场怎么改都没用、只有第二场失败」。`handlers/battle.on_pve_result` 现在把该场 `battle_info.battle_avatar_list` 回填进结果包并置 `check_identical=true`。另在 `on_cast_skill` 加一条 debug 日志（cast/hit/assist/attacked_by），下一轮 packets.log 就能看到客户端施放包到底带了什么。242 单测 + check.ps1 绿，真机待复验。
+  依据：官方抓包 #604 与现实现逐字段对比；logs/test/test-20261112-192639.*（两层 FAIL）。
+
 - **下半战斗黑屏第三轮：两层都复现 → 补上资源版本回显**：19:17 真机按新脚本打了两层（5501/5502），**两层症状完全一样**（上半 turns=1 正常、下半 turns=0 + 固定 9 s），所以不是 stage 数据问题，而是「同一局挑战的第二场战斗」通用失败。逐帧比对官方 #604-#658 后确认换半场 10 个包（含 group 9 删除、group 10 声明、角色实体换 id、四条阵容包）与官方逐字段一致，排除了换半场。随后发现一个真实的协议缺口：客户端在每次开战前发 SyncClientResVersionCsReq（LJKMPIMKOMO=资源版本），官方 #651→#655 **原样回显**，而私服走通用空回包——等于告诉客户端「服务端资源版本 = 0」。新增 handlers/player.on_sync_res_version 回显版本号并注册；新增 tests/test_res_version.py（2 例）。244 单测 + check.ps1 绿，真机待复验。
   依据：logs/test/test-20261112-191725.*（两层判定）+ 官方抓包 #651/#655；同一轮里 battle_stage_id/每怪空 ItemList/FGOAKDCBIOE 已先补（见上一条），本次不重复改。
 

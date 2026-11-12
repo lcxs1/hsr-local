@@ -185,6 +185,12 @@ async def on_pve_result(session: Session, req: pb.PVEBattleResultCsReq) -> pb.PV
         stage_id=req.stage_id,
         end_status=req.end_status,
     )
+    if active is not None:
+        # 官方（抓包 #604，1827 字节）在结果回包里带整份 battle_avatar_list +
+        # check_identical。挑战用的是额外阵容（LineupChallenge/2），客户端靠这份
+        # 数据给该阵容收尾；我们以前只回 4 个字段，怀疑下半进不去跟这里有关。
+        rsp.battle_avatar_list.extend(active.battle_avatar_list)
+        rsp.check_identical = True
     if challenge is not None and owns_battle:
         won = req.end_status == pb.BattleEndStatus.Value("BATTLE_END_WIN")
         challenge_service.apply_result_stats(session, req)

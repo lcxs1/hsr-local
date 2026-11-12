@@ -110,6 +110,13 @@ async def on_cast_skill(session: Session, req: pb.SceneCastSkillCsReq) -> pb.Sce
     if challenge is None:
         return pb.SceneCastSkillScRsp(cast_entity_id=req.cast_entity_id)
 
+    session.runtime.logger.debug(
+        "cast skill req: cast=%d hit=%s assist=%s attacked_by=%d",
+        req.cast_entity_id,
+        list(req.hit_target_entity_id_list),
+        list(req.assist_monster_entity_id_list),
+        req.attacked_by_entity_id,
+    )
     targets = [int(entity_id) for entity_id in req.hit_target_entity_id_list]
     if not targets:
         targets = [challenge.monster_entity_id]
