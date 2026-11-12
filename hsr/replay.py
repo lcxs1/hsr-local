@@ -282,6 +282,7 @@ async def run_challenge_flow(
         local = replace(rt, save=save, cfg=copy.deepcopy(rt.cfg))
         local.cfg.endgame.advance = advance
         local.cfg.endgame.avatar_swap = "renumber"  # 回放固定按官方做法，不受 config.toml 探针影响
+        local.cfg.endgame.battle_stage_override = 0
         session = ReplaySession(local)
         result = ReplayResult()
 

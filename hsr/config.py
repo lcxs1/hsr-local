@@ -105,6 +105,9 @@ class EndgameSettings(BaseModel):
     # 2026-11-12 真机：换 id 之后客户端的控制器可能还指着旧 id，怀疑这是下半进不去
     # 战斗的原因（换半场 10 个包其余部分已与官方逐字段一致）。
     avatar_swap: Literal["renumber", "reuse", "skip"] = "renumber"
+    # 只给真机探针用：强制挑战战斗用哪个 stage 的战斗数据（0 = 按关卡走）。
+    # 用来区分「下半进不去」是 stage 数据的问题还是下半场地/阵容状态的问题。
+    battle_stage_override: int = 0
     # 忘却之庭大厅报哪些场景组（客户端按“已加载组”创建地图 NPC）：
     #   all      = 全部道具（含车厢装饰）
     #   crystals = 只报可交互展台（prop_id >= 100000）

@@ -1125,7 +1125,12 @@ def battle_info(session) -> pb.SceneBattleInfo:
     if active is not None and active.battle_id in state.battle_ids:
         return active
     runtime = session.runtime
-    stage = runtime.endgame.stage(state.stage_id)
+    # 真机探针：强制用某个 stage 的战斗数据（0 = 按关卡走）。只影响发给客户端的
+    # battle_info，不动挑战状态机。
+    stage_id = int(getattr(runtime.cfg.endgame, "battle_stage_override", 0) or 0) or int(
+        state.stage_id
+    )
+    stage = runtime.endgame.stage(stage_id)
     if stage is None:
         # Data pack is missing this stage; keep the player unblocked with the
         # cocoon default and make the gap obvious in the log.
@@ -1147,7 +1152,7 @@ def battle_info(session) -> pb.SceneBattleInfo:
     info = pb.SceneBattleInfo(
         battle_id=battle_id,
         world_level=runtime.cfg.player.world_level,
-        stage_id=state.stage_id,
+        stage_id=stage_id,
         rounds_limit=max(1, remaining),
         logic_random_seed=secrets.randbits(32) or 123456789,
         # 字段 7 在 4.6.54 descriptor 里被混淆成 JAOIOKBBMFC，实为
@@ -1163,7 +1168,7 @@ def battle_info(session) -> pb.SceneBattleInfo:
                 # 官方每个波次都带 battle_stage_id（= 该半场的 stage）：抓包 #563 是
                 # 30126011、#658 是 30126012。少它时客户端可能拿不到战斗场景，表现为
                 # 进场动画之后黑屏、几秒后自己判赢。
-                battle_stage_id=int(state.stage_id),
+                battle_stage_id=int(stage_id),
                 monster_param=pb.SceneMonsterWaveParam(level=stage.level),
                 monster_list=[pb.SceneMonster(monster_id=mid) for mid in wave],
                 # 官方每个怪都跟一条空的 ItemList（NMGIABHIJJB），条数与 monster_list 相同。
