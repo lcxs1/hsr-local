@@ -4,6 +4,9 @@
 
 ## 2026-11-12
 
+- **新增一键复测脚本 + 运行判定器**：`scripts/test_lower_half.ps1`（检查 `advance = official` → 复用 `game_test.ps1` 起服务端/代理/游戏收证据 → 结束后自动判定下半有没有真打，`-AnalyseOnly` 可只分析旧日志）与 `scripts/analyze_run.py`（按 challenge id 汇总每半场 `turns`/`cost`、换半场模式与包数、advance 之后客户端 cast 次数与延迟，PASS/FAIL 走退出码）。判据固化：`turns>0` = 真打，`turns=0` + ≤15 s = 战斗场景加载超时判胜。用 2026-11-12 18:57 那轮验证过输出（正确判 FAIL 并指出 +2923 ms 的 cast）。
+  依据：两轮真机都要人工翻日志，把判定固化成脚本；跑 `check.ps1` 全绿。
+
 - **下半黑屏第二轮：换半场真机确认通过，战斗包按抓包补齐 wave 字段**：真机（`test-20261112-185701`）证明 `advance=official` 生效——`challenge advance (official) … packets=10` 之后 2.9 s 客户端就对下半的怪发出 `SceneCastSkillCsReq`，`GetSceneMapInfo` / `GetCurChallenge` 顺序与官方 #605-#609 一致（以前所有模式都是 0 cast）。失败点换了位置：下半**战斗本身**进场动画后黑屏 9 s、客户端自己判 WON（`battle stats turns=0`；同一套代码上半是 `turns=2 cost=17s`）。对齐官方 `SceneCastSkillScRsp`（#563/#658）补三处：`SceneMonsterWave.battle_stage_id = 本半场 stage`、每个怪一条空 `ItemList`（`NMGIABHIJJB`）、`battle_info.FGOAKDCBIOE` 空子消息（`EDCFKACPFNB`）。另修 `scripts/game_test.ps1` 的 `advance` 事件规则（漏了 `official`，上一轮报告把「阶段切换」误判成未发生、下半 cast 计 0）。240 单测 + check.ps1 绿；真机待复验，失败判据与仍存差异写进 [抓包方案 §11](docs/notes/2026-11-12-正式服抓包方案.md)。
   依据：`logs/test/test-20261112-185701.*`（服务端日志 + packets + 截图 14-17）+ 官方抓包 #563/#658 逐字段 diff。
 
