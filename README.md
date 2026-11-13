@@ -178,7 +178,7 @@ logs/           运行时日志（不入库）
   排查方向见 [docs/design/03 §6](docs/design/03-终局玩法.md) 与 [docs/guide/03 §5](docs/guide/03-交接与排障.md)。
 - **地图导航 UI**：数据已下发，但客户端管理员进程无法自动点开，未真机确认。
 - **掉落 / 背包结算**：明确不做。
-- **PF/AS**：协议已实现，待真机；**Peak/Tierce** 未实现；网页 `battle_config` 未接线。
+- **PF/AS**：协议已实现，待真机；**Peak** 协议链已实现（离线 bot 全链通过、待真机），**Tierce** 未实现；网页 `battle_config` 未接线。
 
 完整清单见 [docs/guide/03-交接与排障.md](docs/guide/03-交接与排障.md) §4。
 
