@@ -4,6 +4,9 @@
 
 ## 2026-11-13
 
+- **异相仲裁（Peak）链路实现：9 条 CsReq + 2 条 Notify + 通关历史落库**：新增 `hsr/game/services/peak.py` 与 `hsr/game/handlers/peak.py`（数据/当前/开始/重开/确认结算/离开/领奖/困难模式/编队），`ChallengeState` 加 `peak_*` 字段并复用挑战的场景与战斗机制（`mode=PEAK`），存档新增 `peaks` / `peak_groups`（peak_id → passed/cycles/stars/targets，group_id → taken/hard/hard_passed，旧的 schema 1 存档可直接读）；`PVEBattleResult` 在 PEAK 下改发 `ChallengePeakSettleScNotify` + `ChallengePeakGroupDataUpdateScNotify`，`ConfirmChallengePeakSettle` 收尾清状态（`StartChallengePeakScRsp` 没有 scene，场景走 `EnterSceneByServerScNotify`）。**证据**：`tests/test_peak.py` 12 条；`scripts/bot_smoke.py --profile 4.6.54 --peak` 22 passed/0 failed（真 UDP/KCP 全链）；`--challenge --peak` 30 passed/0 failed；`check_proto --profile 4.6.54` 88 handler OK；262 单测 OK。字段语义（cycles/stars）按 pearl-sr + 4.6.54 客户端表推断，**待真机验收**。
+- **无客户端 e2e：新增 `hsr/tools/bot.py` + `scripts/bot_smoke.py`，接入 `check.ps1`**：真实 20B 握手 + KCP + 帧 + protobuf，脚本自起一次性服务端（随机端口、`.tmp` 存档）跑登录→场景→换队→命途→凝滞虚影→再来一次→心跳；`--profile 4.6.54 --challenge` 再跑混沌回忆上半→换组→下半→结算→退出。实测 4.7.51 14 passed/1 skipped（`QuitBattleCsReq` 不在 140 条表）/0 failed，4.6.54+challenge 23/0/0。解决“改 handler 必须手操游戏”的问题；客户端渲染类问题仍走 `game_test.ps1`。文档见 [guide/04](docs/guide/04-无手操测试.md)。顺带修正 `hsr/replay.py` 换半场队伍断言：两边都归一化到 base id，存档里 `tb_multi_path` 是形态 id（8004）时不再误报。
+
 - **收工：P0 命令号补齐做到一半 + 交接清单**：探测脚本改成自适应轮询（≈0.2 s/id）并新增
   `--skip-known` / `--skip`；扫完 `0 300 800 1000 1500 1600 1800 1900 2200 2500 2900 3100 3300`
   等块，`logs/probe_ids.json` 142 → 194 条；对齐出的 137 个请求名里有 **111 个还缺响应号**，

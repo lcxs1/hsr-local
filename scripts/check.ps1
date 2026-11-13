@@ -29,6 +29,14 @@ Write-Host '== replay ==' -ForegroundColor Cyan
 & $Python scripts\replay_flows.py
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+Write-Host '== bot e2e (headless client) ==' -ForegroundColor Cyan
+& $Python scripts\bot_smoke.py
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+Write-Host '== bot e2e 4.6.54 (challenge + peak) ==' -ForegroundColor Cyan
+& $Python scripts\bot_smoke.py --profile 4.6.54 --challenge --peak
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
 Write-Host '== check_docs ==' -ForegroundColor Cyan
 & $Python scripts\check_docs.py
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

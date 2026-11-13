@@ -69,6 +69,8 @@ PF_HIGH_STAGE = 30309011
 PF_SCORE_ID = 40000
 # 混沌回忆/末日幻影的轮次上限（剧情/PF 是 4）。
 DEFAULT_ROUNDS = 30
+# 异相仲裁（Peak）走同一套阶段状态机，只是模式名不同（一套阵容、一个节点）。
+PEAK = "PEAK"
 FORMAL = pb.AvatarType.AvatarType_AvatarFormalType
 
 # 每个阶段用哪套额外阵容。第一层/上半 = Challenge，第二层/下半 = Challenge2，
@@ -159,6 +161,11 @@ class ChallengeState:
     return_plane_id: int = 0
     return_floor_id: int = 0
     return_entry_id: int = 0
+    # 异相仲裁（Peak）：这次尝试打的 peak / 组 / 是不是 BOSS / 困难模式。
+    peak_id: int = 0
+    peak_group_id: int = 0
+    peak_boss: bool = False
+    peak_hard: bool = False
 
     # ------------------------------------------------------------- properties
     @property
@@ -503,6 +510,68 @@ def start_direct(
     )
     return scene
 
+
+def enter_peak(
+    session,
+    *,
+    peak_id: int,
+    node: ChallengeNode,
+    avatars: list[int] | None = None,
+    buff_ids: list[int] | None = None,
+    group_id: int = 0,
+    boss: bool = False,
+) -> tuple[ChallengeState, pb.SceneInfo]:
+    """Switch the session into one 异相仲裁 node (a single-phase challenge).
+
+    Peak reuses the whole challenge machinery on purpose: one arena, one team,
+    one battle stage, one ``PVEBattleResult``.  Only the command family and the
+    settlement notify differ (``ChallengePeakSettleScNotify`` instead of
+    ``ChallengeSettleNotify``), which is what ``hsr.game.services.peak`` drives.
+    """
+    runtime = session.runtime
+    team = _team(avatars) or [slot for slot in session.lineup.slots if slot]
+    state = ChallengeState(
+        challenge_id=int(peak_id),
+        mode=PEAK,
+        phases=[Phase(0, node, team, PHASE_LINEUP_TYPES[0])],
+        buff_ids=list(buff_ids or []),
+        rounds_left=DEFAULT_ROUNDS,
+        peak_id=int(peak_id),
+        peak_group_id=int(group_id),
+        peak_boss=bool(boss),
+    )
+    state.phase_start_rounds = int(state.rounds_left)
+    state.phase_start_dead_avatars = int(state.dead_avatars)
+    _remember_return(session, state)
+    session.challenge = state
+    scene = _apply_phase_scene(session, state)
+    runtime.logger.info(
+        "peak entered: peak=%d group=%d boss=%s scene=%d/%d entry=%d group_id=%d"
+        " stage=%d monster=%d team=%s buffs=%s",
+        state.peak_id,
+        state.peak_group_id,
+        state.peak_boss,
+        state.node.plane_id,
+        state.node.floor_id,
+        state.node.entrance_id,
+        state.node.maze_group_id,
+        state.stage_id,
+        state.monster_entity_id,
+        team,
+        state.buff_ids,
+    )
+    return state, scene
+
+
+def rescene(session) -> pb.SceneInfo:
+    """Rebuild the current node's ``SceneInfo`` (restart / re-push), drop the battle."""
+    state = getattr(session, "challenge", None)
+    if state is None:
+        raise ValueError("no active challenge")
+    state.battle_id = 0
+    state.battle_ids.clear()
+    session.battle_info = None
+    return _apply_phase_scene(session, state)
 
 def clear(session) -> None:
     """Drop the active challenge (battle included)."""

@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 from hsr.game.services import challenge as challenge_service
 from hsr.game.services import lineup as lineup_service
+from hsr.game.services import peak as peak_service
 from hsr.game.services import scene as scene_service
 from hsr.protocol import pb
 
@@ -212,6 +213,11 @@ async def on_pve_result(session: Session, req: pb.PVEBattleResultCsReq) -> pb.PV
         # Settlement must follow the result ack; without the notify the client
         # stays in the arena and respawns the monster forever.
         await session.send(rsp)
+        if challenge.mode == peak_service.PEAK:
+            # 异相仲裁有自己的一套结算通知（ChallengePeakSettleScNotify + 组更新），
+            # 客户端收到后停在结算页，再由 ConfirmChallengePeakSettle 收尾。
+            await peak_service.settle(session, win=won)
+            return None
         stars = 3 if won else 0
         session.runtime.logger.info(
             "challenge settle: challenge=%d phase=%d/%d win=%s star=%d"

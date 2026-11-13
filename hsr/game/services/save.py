@@ -35,6 +35,10 @@ class PlayerSave:
     pos: list[int] = field(default_factory=list)
     finished_tutorials: list[int] = field(default_factory=list)
     finished_guides: list[int] = field(default_factory=list)
+    # 异相仲裁（Peak）通关历史：peak_id -> {passed, cycles, stars, targets}
+    peaks: dict[int, dict] = field(default_factory=dict)
+    # 每个 Peak 组的领奖 / 困难模式状态：group_id -> {taken: [...], hard: 0|1}
+    peak_groups: dict[int, dict] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -48,6 +52,8 @@ class PlayerSave:
             "pos": self.pos,
             "finished_tutorials": self.finished_tutorials,
             "finished_guides": self.finished_guides,
+            "peaks": {str(k): v for k, v in self.peaks.items()},
+            "peak_groups": {str(k): v for k, v in self.peak_groups.items()},
         }
 
     @classmethod
@@ -66,6 +72,8 @@ class PlayerSave:
             pos=[int(x) for x in raw.get("pos", [])],
             finished_tutorials=[int(x) for x in raw.get("finished_tutorials", [])],
             finished_guides=[int(x) for x in raw.get("finished_guides", [])],
+            peaks={int(k): dict(v) for k, v in (raw.get("peaks") or {}).items()},
+            peak_groups={int(k): dict(v) for k, v in (raw.get("peak_groups") or {}).items()},
         )
 
 
@@ -141,3 +149,66 @@ class SaveStore:
         if guide_id and guide_id not in self.player.finished_guides:
             self.player.finished_guides.append(int(guide_id))
             self.flush()
+
+    # ------------------------------------------------------- peak (异相仲裁)
+    def peak_record(self, peak_id: int) -> dict:
+        """One cleared Peak, or an empty dict when it was never cleared."""
+        return dict(self.player.peaks.get(int(peak_id)) or {})
+
+    def record_peak(
+        self,
+        peak_id: int,
+        *,
+        cycles: int = 0,
+        stars: int = 0,
+        targets: list[int] | None = None,
+    ) -> bool:
+        """Merge one cleared Peak into the history; True when it is the first pass.
+
+        ``cycles`` is the number of cycles (rounds) spent: lower is better, so the
+        history keeps the best value and ``0`` means "not reported".
+        """
+        key = int(peak_id)
+        old = dict(self.player.peaks.get(key) or {})
+        first_pass = not old.get("passed")
+        best = int(old.get("cycles") or 0)
+        cycles = int(cycles or 0)
+        if not best:
+            best = cycles
+        elif cycles:
+            best = min(best, cycles)
+        merged = {
+            "passed": 1,
+            "cycles": best,
+            "stars": max(int(old.get("stars") or 0), int(stars)),
+            "targets": sorted({*(old.get("targets") or []), *(targets or [])}),
+        }
+        self.player.peaks[key] = merged
+        self.flush(force=True)
+        return first_pass
+
+    def peak_group_record(self, group_id: int) -> dict:
+        return dict(self.player.peak_groups.get(int(group_id)) or {})
+
+    def set_peak_hard_mode(self, group_id: int, enabled: bool) -> None:
+        group = dict(self.player.peak_groups.get(int(group_id)) or {})
+        group["hard"] = 1 if enabled else 0
+        self.player.peak_groups[int(group_id)] = group
+        self.flush(force=True)
+
+    def record_peak_hard_clear(self, group_id: int) -> None:
+        """Mark the group's BOSS as cleared in hard mode (困难模式)."""
+        group = dict(self.player.peak_groups.get(int(group_id)) or {})
+        group["hard_passed"] = 1
+        self.player.peak_groups[int(group_id)] = group
+        self.flush(force=True)
+
+    def take_peak_rewards(self, group_id: int, reward_ids: list[int]) -> list[int]:
+        """Remember claimed star-count rewards; returns every claimed id."""
+        group = dict(self.player.peak_groups.get(int(group_id)) or {})
+        taken = {int(x) for x in (group.get("taken") or [])}
+        taken.update(int(x) for x in (reward_ids or []))
+        group["taken"] = sorted(taken)
+        self.player.peak_groups[int(group_id)] = group
+        self.flush(force=True)
+        return group["taken"]

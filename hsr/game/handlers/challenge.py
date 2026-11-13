@@ -403,7 +403,9 @@ async def on_start_challenge_tierce(
 async def on_get_cur_challenge(
     session: Session, req: pb.GetCurChallengeCsReq
 ) -> pb.GetCurChallengeScRsp:
-    if getattr(session, "challenge", None) is None:
+    state = getattr(session, "challenge", None)
+    if state is None or state.mode == challenge_service.PEAK:
+        # 异相仲裁有自己的 GetCurChallengePeak；别把 Peak 当成普通挑战回包。
         return pb.GetCurChallengeScRsp(retcode=0)
     return pb.GetCurChallengeScRsp(
         retcode=0,
@@ -417,6 +419,12 @@ async def on_leave_challenge(
 ) -> pb.LeaveChallengeScRsp:
     runtime = session.runtime
     active = getattr(session, "challenge", None)
+    if active is not None and active.mode == challenge_service.PEAK:
+        # 客户端用挑战的离开命令收尾一次 Peak 时，走 Peak 的返回场景逻辑。
+        from hsr.game.handlers import peak as peak_handlers
+
+        rsp = await peak_handlers.on_leave_peak(session, pb.LeaveChallengePeakCsReq())
+        return pb.LeaveChallengeScRsp(retcode=rsp.retcode)
     if active is not None:
         runtime.logger.info(
             "leave challenge: id=%d mode=%s phase=%d/%d",

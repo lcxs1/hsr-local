@@ -33,12 +33,12 @@ Python 写的本地单人《崩坏：星穹铁道》私服，默认目标客户�
 | 混沌回忆（MOC） | ✅ 15 层闭环；🔁 换半场 `advance=official` 已真机；🟡 下半战斗卡进场动画、缺「物竞天择」关卡组卡 |
 | 虚构叙事（PF）/ 末日幻影（AS） | 🟡 协议已实现，待真机 |
 | 历战余响 | 🟡 协议链 + 单测，入口待真机 |
-| 异相仲裁（Peak）/ Tierce | ⬜ 未实现，数据已就绪 |
+| 异相仲裁（Peak）/ Tierce | 🟡 Peak 9 命令 + 2 通知已实现（离线 bot 全链通过，待真机）；Tierce 未实现 |
 | 掉落 / 背包结算 | ⏸ 按决定不做 |
 | 地图「导航」UI | ⏸ 数据已下发，无法自动验证 |
 | 4.7.51（`OSBETAWin4.7.51`，4.8 beta） | ✅ 真机通过：登录 / 跑图 / 换队伍 / 换皮肤 / 进战斗 / 结算（4.8 描述符快照 + 140 条 cmd 表；48 个 handler 待补 id） |
 
-当前规模：**250 单测 / 79 handler（4.6.54 全量，4.7.51 partial 为 31）**，`scripts\check.ps1` 全绿。
+当前规模：**262 单测 / 88 handler（4.6.54 全量，4.7.51 partial 为 31、57 个缺命令号）**，`scripts\check.ps1` 全绿。
 数字以 [docs/README §3](docs/README.md#3-关键数字唯一事实源) 为准。
 
 > **4.7.0 CN 已真机通过**：`versions/4.7.0.toml` + 本地 CDN 回放（`features.local_cdn`）+
@@ -119,6 +119,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\game_test.ps1
 # 离线核心链路（不启动客户端）
 .\.venv\Scripts\python.exe scripts\replay_flows.py
 
+# 无客户端 e2e：起一次性服务端，用真实 UDP/KCP 跑登录→战斗（4.6.54 跑混沌回忆全链）
+.\.venv\Scripts\python.exe scripts\bot_smoke.py
+.\.venv\Scripts\python.exe scripts\bot_smoke.py --profile 4.6.54 --challenge
+
 # 解码冻结的 4.6.54 抓包（抓包文件不在仓库内）
 python -m hsr.tools.decode --capture <抓包目录>\capture.bin --list
 ```
@@ -151,6 +155,7 @@ logs/           运行时日志（不入库）
 | [guide/01-运行与配置](docs/guide/01-运行与配置.md) | 启动链路、config 全表、数据/存档、改哪里 |
 | [guide/02-测试与回归](docs/guide/02-测试与回归.md) | `game_test.ps1`、手动测试、报告解读 |
 | [guide/03-交接与排障](docs/guide/03-交接与排障.md) | 已验证事实、坑、限制、下一轮 |
+| [guide/04-无手操测试](docs/guide/04-无手操测试.md) | 无客户端 bot、真机驱动、抓包回放 |
 | [design/01-网络与登录](docs/design/01-网络与登录.md) | HTTP 登录链、握手、KCP、帧、proto/cmd |
 | [design/02-玩法与数据](docs/design/02-玩法与数据.md) | 角色/阵容/场景/战斗/挑战、freesr、存档 |
 | [design/03-终局玩法](docs/design/03-终局玩法.md) | MOC/PF/AS/Peak/Tierce |

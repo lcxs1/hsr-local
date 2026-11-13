@@ -353,7 +353,7 @@ async def run_challenge_flow(
 
         upper = await fight()
         _check(
-            [avatar.id for avatar in upper.battle_info.battle_avatar_list]
+            [local.roster.base_id(avatar.id) for avatar in upper.battle_info.battle_avatar_list]
             == [local.roster.base_id(a) for a in first],
             "上半 battle uses the wrong team",
         )
@@ -417,7 +417,7 @@ async def run_challenge_flow(
         lower = await fight()
         _check(lower.battle_info.stage_id == challenge.node2.stage_id, "下半 stage mismatch")
         _check(
-            [avatar.id for avatar in lower.battle_info.battle_avatar_list]
+            [local.roster.base_id(avatar.id) for avatar in lower.battle_info.battle_avatar_list]
             == [local.roster.base_id(a) for a in second],
             "下半 battle uses the wrong team",
         )

@@ -41,6 +41,7 @@
 | [guide/01-运行与配置](guide/01-运行与配置.md) | 现行 | 启动链路、`config.toml` 全表、数据/存档、目录结构、「改哪里」 |
 | [guide/02-测试与回归](guide/02-测试与回归.md) | 现行 | `game_test.ps1`、手动测试项、报告怎么读、常见问题 |
 | [guide/03-交接与排障](guide/03-交接与排障.md) | 现行 | 已验证事实与证据、踩过的坑、已知限制、下一轮任务 |
+| [guide/04-无手操测试](guide/04-无手操测试.md) | 现行 | 无客户端 bot、`/debug` 驱动、抓包回放与真机自动化路线 |
 
 ### 2.2 实现原理
 
@@ -92,8 +93,8 @@
 | 客户端版本（默认） | 4.7.51 / `OSBETAWin4.7.51` / build `17100438` | `versions/4.7.51.toml`（2026-11-13 真机首登通过） |
 | 客户端版本（4.7.0） | `CNPRODWin4.7.0` / build `17108910` | `versions/4.7.0.toml`，用 `--profile 4.7.0` 切换 |
 | 客户端版本（4.6.54） | `OSBETAWin4.6.54` / build `16927089` | `versions/4.6.54.toml`，用 `--profile 4.6.54` 切换 |
-| handler | **79**（4.6.54 全量）/ **31**（4.7.51 partial） | `hsr/game/handlers/*.py` 的 `router.add(...)`；4.7.51 的其余 48 个因缺命令号被跳过 |
-| 单测 | **250** | `.venv\Scripts\python.exe -m unittest discover -s tests` |
+| handler | **88**（4.6.54 全量）/ **31**（4.7.51 partial） | `hsr/game/handlers/*.py` 的 `router.add(...)`；4.7.51 的其余 57 个因缺命令号被跳过 |
+| 单测 | **262** | `.venv\Scripts\python.exe -m unittest discover -s tests` |
 | 4.8 协议快照（4.7.51） | 4,993 消息 / 476 枚举 | `proto/4.7.51/classes.desc`（ppSR 导出） |
 | 4.7.51 命令表 | **140** 条（partial，48 个 handler 待补） | `proto/4.7.51/CmdId.json`，反查方法见 reference/06 §10 |
 | freesr 角色/遗器/光锥 | 99 / 418 / 87 | `data/freesr-data.json` |
