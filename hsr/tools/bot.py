@@ -92,7 +92,7 @@ class Bot:
         self._last_send = 0.0
 
     # ------------------------------------------------------------- lifecycle
-    def __enter__(self) -> "Bot":
+    def __enter__(self) -> Bot:
         self.connect()
         return self
 

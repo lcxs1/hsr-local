@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
-from pathlib import Path
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from google.protobuf.message import Message

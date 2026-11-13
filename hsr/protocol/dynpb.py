@@ -13,11 +13,9 @@ first use, which keeps startup cheap for a 5000-message schema.
 
 from __future__ import annotations
 
-import types
-from pathlib import Path
-
 import importlib
 import json
+import types
 from pathlib import Path
 
 from google.protobuf import descriptor_pb2, descriptor_pool, message_factory
