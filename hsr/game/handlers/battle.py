@@ -217,6 +217,8 @@ async def on_pve_result(session: Session, req: pb.PVEBattleResultCsReq) -> pb.PV
             # 异相仲裁有自己的一套结算通知（ChallengePeakSettleScNotify + 组更新），
             # 客户端收到后停在结算页，再由 ConfirmChallengePeakSettle 收尾。
             await peak_service.settle(session, win=won)
+            if getattr(challenge, "direct", False):
+                await _leave_direct(session)
             return None
         stars = 3 if won else 0
         session.runtime.logger.info(

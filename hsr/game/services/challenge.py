@@ -520,6 +520,7 @@ def enter_peak(
     buff_ids: list[int] | None = None,
     group_id: int = 0,
     boss: bool = False,
+    direct: bool = False,
 ) -> tuple[ChallengeState, pb.SceneInfo]:
     """Switch the session into one 异相仲裁 node (a single-phase challenge).
 
@@ -540,6 +541,8 @@ def enter_peak(
         peak_group_id=int(group_id),
         peak_boss=bool(boss),
     )
+    # direct = 由 /debug/peak 硬推进 arena（不经过客户端自己的 Start），结算后要自己送回世界。
+    state.direct = bool(direct)
     state.phase_start_rounds = int(state.rounds_left)
     state.phase_start_dead_avatars = int(state.dead_avatars)
     _remember_return(session, state)

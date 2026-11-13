@@ -206,7 +206,14 @@ def cur_response(session) -> pb.GetCurChallengePeakScRsp:
 
 
 # ---------------------------------------------------------------------- flow
-def enter(session, ref: PeakTarget, *, avatars: list[int] | None = None, buff_id: int = 0):
+def enter(
+    session,
+    ref: PeakTarget,
+    *,
+    avatars: list[int] | None = None,
+    buff_id: int = 0,
+    direct: bool = False,
+):
     """Enter one Peak node; returns ``(state, scene)`` like ``challenge.enter``."""
     return challenge_service.enter_peak(
         session,
@@ -216,6 +223,7 @@ def enter(session, ref: PeakTarget, *, avatars: list[int] | None = None, buff_id
         buff_ids=[int(buff_id)] if buff_id else [],
         group_id=int(ref.group.id),
         boss=ref.is_boss,
+        direct=direct,
     )
 
 

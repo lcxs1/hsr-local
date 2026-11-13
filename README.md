@@ -110,6 +110,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\check.ps1
 # 真机测试：起服务端/代理/游戏、截图、出报告
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\game_test.ps1
 
+# 异相仲裁（Peak）真机：同上，只收 Peak 证据，跑完自动判定
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\peak_test.ps1
+
+# 重启客户端（结束 → 起代理 → 等登录）：代理提权时 agent 也能自己跑
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\restart_client.ps1
+
 # 只跑单测
 .\.venv\Scripts\python.exe -m unittest discover -s tests
 
@@ -139,7 +145,7 @@ hsr/            服务端代码
 proto/          StarRail.proto、CmdId.json、描述符
 data/           静态数据（角色、关卡、终局、教程）
 versions/       客户端版本 profile（4.7.51 / 4.6.54 / 4.7.0）
-tests/          单元测试（244 个）
+tests/          单元测试
 scripts/        回归、真机测试、数据导出
 docs/           指南 / 设计 / 参考 / 笔记
 lua/            Lua 控制台脚本

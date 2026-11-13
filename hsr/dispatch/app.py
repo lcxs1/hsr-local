@@ -228,6 +228,7 @@ def create_app(rt: Runtime) -> FastAPI:
     #   GET /debug/challenge?id=5501&second=1
     #                                   直接进**下半**（第二队、node2 的 arena），
     #                                   用来验证“下半的战斗本身能不能打”
+    #   GET /debug/peak                 异相仲裁（Peak）：列组 / 直接进某一关
     @app.get("/debug/challenge")
     async def debug_challenge(id: int = 0, second: int = 0):  # noqa: A002
         from hsr.game.services import challenge as challenge_service
@@ -312,6 +313,86 @@ def create_app(rt: Runtime) -> FastAPI:
             "challenge": id,
             "phase": state.index + 1,
             "group": state.node.maze_group_id,
+            "stage": state.stage_id,
+            "plane": scene.plane_id,
+            "floor": scene.floor_id,
+        }
+
+    #   GET /debug/peak                 列出 11 个 Peak 组、每组的 3 小关 + BOSS
+    #   GET /debug/peak?id=101          直接把角色送进这一关的 arena（没 HUD，只验场景/战斗包）
+    #   GET /debug/peak?id=104&hard=1   进 BOSS 的困难模式（顺带写进 peak_groups.hard）
+    @app.get("/debug/peak")
+    async def debug_peak(id: int = 0, group: int = 0, hard: int = 0):  # noqa: A002
+        from hsr.game.services import challenge as challenge_service
+        from hsr.game.services import peak as peak_service
+
+        sessions = rt.sessions()
+        if not sessions:
+            return JSONResponse(
+                {"ok": False, "error": "no live session (log in first)"}, status_code=409
+            )
+        session = sessions[-1]
+        if not id:
+            groups = []
+            for peak_group in peak_service.groups(session):
+                groups.append(
+                    {
+                        "group": int(peak_group.id),
+                        "boss": int(peak_group.boss_level_id),
+                        "peaks": [
+                            int(stage.id)
+                            for stage in peak_service.peaks_of(session, peak_group)
+                        ],
+                    }
+                )
+            return {
+                "ok": True,
+                "current_group": peak_service.current_group(session),
+                "groups": groups,
+            }
+        ref = peak_service.resolve(session, id)
+        if ref is None:
+            return JSONResponse(
+                {"ok": False, "error": f"unknown peak {id}"}, status_code=404
+            )
+        if hard:
+            rt.save.set_peak_hard_mode(int(ref.group.id), True)
+        challenge_service.clear(session)
+        session.peak_settled = False
+        state, scene = peak_service.enter(session, ref, direct=True)
+        state.peak_hard = bool(hard)
+        if group:
+            state.peak_group_id = int(group)
+        lineup = challenge_service.lineup_info(session)
+        # 和 /debug/challenge 一样：把应答也当主动包发一遍，探客户端能不能挂上战斗状态。
+        await session.send(pb.StartChallengePeakScRsp(retcode=0))
+        await session.send(
+            pb.ChallengeLineupNotify(extra_lineup_type=lineup.extra_lineup_type)
+        )
+        await session.send(pb.SyncLineupNotify(lineup=lineup))
+        await session.send(
+            pb.EnterSceneByServerScNotify(
+                reason=pb.EnterSceneReason.Value("ENTER_SCENE_REASON_NONE"),
+                lineup=lineup,
+                scene=scene,
+            )
+        )
+        rt.logger.info(
+            "debug peak: pushed arena for peak=%d group=%d boss=%s hard=%s"
+            " stage=%d maze_group=%d",
+            ref.peak_id,
+            int(ref.group.id),
+            ref.is_boss,
+            bool(hard),
+            state.stage_id,
+            state.node.maze_group_id,
+        )
+        return {
+            "ok": True,
+            "peak": ref.peak_id,
+            "group": int(ref.group.id),
+            "boss": ref.is_boss,
+            "hard": bool(hard),
             "stage": state.stage_id,
             "plane": scene.plane_id,
             "floor": scene.floor_id,

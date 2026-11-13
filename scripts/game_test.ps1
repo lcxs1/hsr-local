@@ -40,7 +40,7 @@
     powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\game_test.ps1 -Scenario core -Client 4.6.54
 #>
 param(
-    [ValidateSet('challenge', 'core')]
+    [ValidateSet('challenge', 'core', 'peak')]
     [string]$Scenario = 'challenge',
 
     # 客户端版本：决定 exe、Player.log 与服务端 --profile。
@@ -58,13 +58,17 @@ param(
     [int[]]$ShotPlan = @(10, 40, 90),  # 只给 -Scenario core 用
     [switch]$StopAfterSettle,       # 结算后 45 s 没有新挑战包就自动收工
 
+    # -Scenario peak：登录后自动调 /debug/peak?id=N 把角色直接送进 arena
+    # （0 = 不自动进，自己在游戏里点面板）。这条路只有场景/战斗包，没有 HUD。
+    [int]$DebugPeak = 0,
+
     # 只分析已经落盘的日志（不启动服务端/游戏）：
     #   直接传 <run>.server.log；同目录同名 .packets.log / .client.log 会自动带上。
     [string]$AnalyseOnly = '',
 
-    [string]$GameDir = 'E:\SiFu\HSRSiFu',
-    [string]$GameExe = '',          # 留空 = 按 -Client 选
-    [string]$ProxyExe = 'E:\SiFu\HSRSiFu\firefly-go-proxy.exe',
+    [string]$GameDir = 'E:\SiFu\HSRSiFu',   # 客户端根目录：$GameDir\StarRail_4.7.51\StarRail.exe
+    [string]$GameExe = '',          # 留空 = 按 -Client 和 -GameDir 推
+    [string]$ProxyExe = '',         # 留空 = $GameDir\firefly-go-proxy.exe
     [string[]]$ServerArgs = @(),    # 追加给服务端（--profile 已自动加）
 
     # 探针：临时改 config.toml 的 [endgame] lobby_entry / lobby_teleport，跑完还原。
@@ -85,20 +89,22 @@ Set-Location $Root
 # （docs/reference/05 §1；写错路径会收到旧日志、报告失真）。
 $ClientProfiles = @{
     '4.6.54' = @{
-        Exe = 'E:\SiFu\HSRSiFu\StarRail_4.6.54\StarRail.exe'
+        Dir = 'StarRail_4.6.54'
         Log = Join-Path $env:USERPROFILE 'AppData\LocalLow\Cognosphere\Star Rail\Player.log'
     }
     '4.7.0' = @{
-        Exe = 'E:\SiFu\HSRSiFu\StarRail_CN_4.7.0\StarRail.exe'
+        Dir = 'StarRail_CN_4.7.0'
         Log = Join-Path $env:USERPROFILE 'AppData\LocalLow\miHoYo\崩坏：星穹铁道\Player.log'
     }
     # 4.7.51 是 OS 渠道的 beta 包（OSBETAWin4.7.51），日志回到 Cognosphere 目录。
     '4.7.51' = @{
-        Exe = 'E:\SiFu\HSRSiFu\StarRail_4.7.51\StarRail.exe'
+        Dir = 'StarRail_4.7.51'
         Log = Join-Path $env:USERPROFILE 'AppData\LocalLow\Cognosphere\Star Rail\Player.log'
     }
 }
-if (-not $GameExe) { $GameExe = $ClientProfiles[$Client].Exe }
+# 客户端根目录可换（默认 E:\SiFu\HSRSiFu）：exe 和代理都从它推，换机器只改 -GameDir。
+if (-not $GameExe) { $GameExe = Join-Path (Join-Path $GameDir $ClientProfiles[$Client].Dir) 'StarRail.exe' }
+if (-not $ProxyExe) { $ProxyExe = Join-Path $GameDir 'firefly-go-proxy.exe' }
 
 $Python = Join-Path $Root '.venv\Scripts\python.exe'
 $OutDir = Join-Path $Root 'logs\test'
@@ -270,6 +276,17 @@ $CoreSteps = @(
     '4) 看指南/手机图标的小红点是否还在。'
 )
 
+$PeakSteps = @(
+    '1) 登录进世界 -> 星际和平指南 -> 忘却之庭 -> 找【异相仲裁】入口（第三张卡）',
+    '   入口都没有 = 面板数据/组没下发，先把 report.md 发回来（别急着改代码）',
+    '2) 面板：11 个组都在吗？组内 3 小关 + BOSS 都显示吗？困难模式开关在不在？',
+    '3) 第 1 组第 1 关（peak 101）-> 编队 -> 开始；看能不能进场景、走位、按 F 开打',
+    '4) 战斗画面：正常 / 黑屏 / 卡住；打完看结算页（轮次、星数）-> 确认结算 -> 回面板',
+    '5) 再试 BOSS（104）：普通 + 困难模式各打一次',
+    '   没有入口也能验服务端：重跑加 -DebugPeak 101（登录后自动进 arena，只有场景没有 HUD）',
+    '测试完按 Enter 收工；中途想停也可以直接按 Enter。'
+)
+
 # 服务端日志 → 事件。Name 会出现在时间线与截图文件名里。
 # Shots 是“事件后第几秒各拍一张”。
 $ChallengeRules = @(
@@ -298,7 +315,22 @@ $CoreRules = @(
     @{ Name = 'skin';           Pattern = 'avatar skin changed';                             Shots = @() }
 )
 
-$Rules = if ($Scenario -eq 'challenge') { $ChallengeRules } else { $CoreRules }
+$PeakRules = @(
+    @{ Name = 'peak-data';      Pattern = 'peak data: (\d+) groups';                       Shots = @() },
+    @{ Name = 'peak-start';     Pattern = 'start peak: peak=(\d+) group=(\d+) boss=(\w+)'; Shots = @(0) },
+    @{ Name = 'peak-entered';   Pattern = 'peak entered: peak=(\d+)';                      Shots = @() },
+    @{ Name = 'peak-debug';     Pattern = 'debug peak: pushed arena for peak=(\d+)';       Shots = @(0, 5) },
+    @{ Name = 'peak-battle';    Pattern = 'challenge battle info: id=(\d+) challenge=(\d+) mode=PEAK'; Shots = @(0, 4) },
+    @{ Name = 'peak-settle';    Pattern = 'peak settle: peak=(\d+) group=';                Shots = @(0, 5) },
+    @{ Name = 'peak-confirm';   Pattern = 'confirm peak settle: peak=(\d+)';               Shots = @(0) },
+    @{ Name = 'peak-leave';     Pattern = 'leave peak: back to scene';                     Shots = @(0) },
+    @{ Name = 'peak-reward';    Pattern = 'peak reward: group=(\d+)';                      Shots = @() },
+    @{ Name = 'peak-hard';      Pattern = 'peak hard mode: group=(\d+) hard=(\w+)';        Shots = @() },
+    @{ Name = 'handler-fail';   Pattern = 'handler .* failed';                             Shots = @() }
+)
+
+$ScenarioSteps = if ($Scenario -eq 'challenge') { $ChallengeSteps } elseif ($Scenario -eq 'peak') { $PeakSteps } else { $CoreSteps }
+$Rules = if ($Scenario -eq 'challenge') { $ChallengeRules } elseif ($Scenario -eq 'peak') { $PeakRules } else { $CoreRules }
 
 # --------------------------------------------------------------- run state
 # 采集用的共享状态。放在 preflight 之前，因为 -AnalyseOnly 也要用同一套分析。
@@ -365,7 +397,7 @@ if ($NoGame) {
     Write-Host ''
     Write-Host "场景：$Scenario（客户端 $Client）" -ForegroundColor Cyan
     Write-Host ''
-    foreach ($line in $(if ($Scenario -eq 'challenge') { $ChallengeSteps } else { $CoreSteps })) {
+    foreach ($line in $ScenarioSteps) {
         Write-Host "  $line"
     }
     Write-Host ''
@@ -479,6 +511,18 @@ while ((Get-Date) -lt $deadline) {
 }
 if (-not $loginSeen) { Write-Warn2 '没有检测到登录包。检查代理/系统代理/游戏是否真的启动。' }
 
+# -DebugPeak：登录后直接把角色送进某个 Peak 的 arena（不复用 /debug/challenge 的挑战状态）。
+if ($DebugPeak -gt 0 -and $loginSeen) {
+    $peakUrl = "http://127.0.0.1:21000/debug/peak?id=$DebugPeak"
+    Write-Step "调试直接进 Peak：$peakUrl"
+    try {
+        $peakRsp = Invoke-WebRequest -UseBasicParsing -Uri $peakUrl -TimeoutSec 10
+        Write-Evt ("debug peak -> " + $peakRsp.Content)
+    } catch {
+        Write-Warn2 "debug peak 失败：$_"
+    }
+}
+
 # ------------------------------------------------------------------ evidence
 # （$clientMirror / $packetsMirror / 采集变量都在 preflight 之前就建好了）
 if (-not $AnalyseOnly) {
@@ -515,11 +559,7 @@ $ExceptionPattern = 'Exception|NullReference|_RefreshGroup|_OnGetCurBattleInfo|A
 Write-Head "开始收集（场景 $Scenario）"
 Write-Host '现在轮到你在游戏里操作；脚本只记录和截图。' -ForegroundColor Cyan
 Write-Host ''
-if ($Scenario -eq 'challenge') {
-    foreach ($line in $ChallengeSteps) { Write-Host "  $line" }
-} else {
-    foreach ($line in $CoreSteps) { Write-Host "  $line" }
-}
+foreach ($line in $ScenarioSteps) { Write-Host "  $line" }
 Write-Host ''
 Write-Host '随时按 Enter 结束并生成报告（-MaxMinutes 到点也会自动结束）。' -ForegroundColor Yellow
 Write-Host ''
@@ -578,7 +618,7 @@ while (-not $userDone) {
             [void]$packetLines.Add($line)
             if ($line -match '-> ([A-Za-z0-9_]+)CsReq') {
                 $req = $Matches[1]
-                if ($req -match '^(EnterScene|InteractProp|GetChallenge|GetChallengeGroupStatistics|StartChallenge|StartChallengeTierce|LeaveChallenge|SceneCastSkill|QuitBattle|GetCurChallenge)$') {
+                if ($req -match '^(EnterScene|InteractProp|GetChallenge|GetChallengeGroupStatistics|StartChallenge|StartChallengeTierce|StartChallengePeak|LeaveChallenge|LeaveChallengePeak|ConfirmChallengePeakSettle|TakeChallengePeakReward|SetChallengePeakBossHardMode|SceneCastSkill|QuitBattle|GetCurChallenge|GetChallengePeakData)$') {
                     $now = Get-Date
                     $last = if ($script:pktShotAt.ContainsKey($req)) { $script:pktShotAt[$req] } else { [datetime]::MinValue }
                     if (($now - $last).TotalSeconds -ge 8) {
@@ -669,6 +709,8 @@ function Get-Win([string]$line) {
 }
 
 $verdicts = @()
+# 上下半那套判定只有 challenge 场景有意义；peak 场景单独判（见下面的 peak 判定块）。
+if ($Scenario -ne 'peak') {
 $battleInfos = @(Find-Events 'battle-info')
 $results = @(Find-Events 'result')
 $advances = @(Find-Events 'advance')
@@ -777,6 +819,28 @@ if ($advances.Count) {
     }
 }
 
+}
+
+# --- 证据判定（peak） ------------------------------------------------------
+if ($Scenario -eq 'peak') {
+    $peakData = @(Find-Events 'peak-data')
+    $peakStarts = @(Find-Events 'peak-start')
+    $peakDebugs = @(Find-Events 'peak-debug')
+    $peakBattles = @(Find-Events 'peak-battle')
+    $peakSettles = @(Find-Events 'peak-settle')
+    $peakConfirms = @(Find-Events 'peak-confirm')
+    $peakLeaves = @(Find-Events 'peak-leave')
+    $handlerFails = @(Find-Events 'handler-fail')
+    $verdicts += [pscustomobject]@{ Item = 'Peak 面板数据'; Value = $(if ($peakData.Count) { "已拉取 $($peakData.Count) 次" } else { '没有' }); Ok = ($peakData.Count -gt 0) }
+    $verdicts += [pscustomobject]@{ Item = '开始 Peak（start / debug）'; Value = "start $($peakStarts.Count) / debug $($peakDebugs.Count)"; Ok = (($peakStarts.Count + $peakDebugs.Count) -gt 0) }
+    $verdicts += [pscustomobject]@{ Item = 'Peak 战斗包（mode=PEAK）'; Value = "$($peakBattles.Count) 次"; Ok = ($peakBattles.Count -gt 0) }
+    $verdicts += [pscustomobject]@{ Item = 'Peak 结算通知'; Value = "$($peakSettles.Count) 次"; Ok = ($peakSettles.Count -gt 0) }
+    $verdicts += [pscustomobject]@{ Item = '确认结算 / 离开'; Value = "confirm $($peakConfirms.Count) / leave $($peakLeaves.Count)"; Ok = (($peakConfirms.Count + $peakLeaves.Count) -gt 0) }
+    $verdicts += [pscustomobject]@{ Item = '服务端 handler 异常'; Value = "$($handlerFails.Count) 条"; Ok = ($handlerFails.Count -eq 0) }
+    $nrePeak = @($clientExceptions | Where-Object { $_ -match 'NullReference' }).Count
+    $verdicts += [pscustomobject]@{ Item = '客户端异常行'; Value = "$($clientExceptions.Count) 种（NRE $nrePeak）"; Ok = ($clientExceptions.Count -eq 0) }
+}
+
 # --- 报告 -----------------------------------------------------------------
 $report = Join-Path $OutDir "$RunId.report.md"
 $sb = New-Object System.Text.StringBuilder
@@ -829,12 +893,14 @@ foreach ($line in ($challengePackets | Select-Object -First 200)) { Add-Line $li
 if ($challengePackets.Count -gt 200) { Add-Line "…（共 $($challengePackets.Count) 行，完整见 packets 镜像）" }
 Add-Line '```'
 Add-Line ''
+if ($Scenario -ne 'peak') {
 Add-Line '### C2. 下半窗口（advance 之后）：客户端对第二次战斗包的反应'
 Add-Line ''
 Add-Line '```'
 foreach ($line in ($secondHalfPackets | Select-Object -First 160)) { Add-Line $line.Trim() }
 Add-Line '```'
 Add-Line ''
+}
 
 Add-Line '## D. 客户端日志：下半窗口'
 Add-Line ''
@@ -873,6 +939,10 @@ Add-Line ''
 
 Add-Line '## E. 客户端异常汇总（本次运行，去重）'
 Add-Line ''
+if ($AnalyseOnly -and -not (Test-Path (Join-Path $OutDir "$RunId.client.log"))) {
+    Add-Line '（-AnalyseOnly 且同轮没有 .client.log：下面读的是全局 Player.log，可能含旧噪音）'
+    Add-Line ''
+}
 if ($clientExceptions.Count) {
     foreach ($line in ($clientExceptions | Select-Object -First 40)) { Add-Line "- ``$line``" }
 } else {
@@ -921,13 +991,24 @@ if ($Scenario -eq 'core') {
 
 Add-Line '## H. 手动确认（你来填）'
 Add-Line ''
-Add-Line '- 上半战斗画面：正常 / 黑屏 / 卡住'
-Add-Line '- 上半打完有没有自动进下半：是 / 否（黑屏 / 停在结算）'
-Add-Line '- 下半队伍：第二队 / 还是上半那队'
-Add-Line '- 下半战斗画面：正常 / 黑屏 / 卡住 / 没进去'
-Add-Line '- 下半结算页：出现了 / 没出现'
-Add-Line '- 退出后：回到世界 / 卡在车厢或加载条'
-Add-Line '- 备注：'
+if ($Scenario -eq 'peak') {
+    Add-Line '- 异相仲裁入口：有 / 没有（第三张卡；没有就是数据/组问题）'
+    Add-Line '- 面板：11 个组都出现？组内 3 小关 + BOSS 都在？困难模式开关在不在？'
+    Add-Line '- 第 1 组第 1 关（101）：能进场景 / 卡加载 / 黑屏'
+    Add-Line '- 战斗：能走位、按 F 开打、出招、伤害正常？'
+    Add-Line '- 结算页：出现了吗？（轮次 / 星数 / 困难模式标记）'
+    Add-Line '- 确认结算后：回面板 / 卡住'
+    Add-Line '- BOSS（104）+ 困难模式：试了 / 没试；现象：'
+    Add-Line '- 备注：'
+} else {
+    Add-Line '- 上半战斗画面：正常 / 黑屏 / 卡住'
+    Add-Line '- 上半打完有没有自动进下半：是 / 否（黑屏 / 停在结算）'
+    Add-Line '- 下半队伍：第二队 / 还是上半那队'
+    Add-Line '- 下半战斗画面：正常 / 黑屏 / 卡住 / 没进去'
+    Add-Line '- 下半结算页：出现了 / 没出现'
+    Add-Line '- 退出后：回到世界 / 卡在车厢或加载条'
+    Add-Line '- 备注：'
+}
 
 $sb.ToString() | Set-Content -Path $report -Encoding UTF8
 
