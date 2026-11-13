@@ -121,6 +121,12 @@ class Router:
         pair = self.registry.empty_rsp_bytes(pkt.cmd)
         if pair:
             await session.send_empty(pair[0])
+        elif first:
+            # 连响应号都不在表里：客户端会等这条回包（登录时表现为
+            # 「连接超时」转圈 + 不能操作，约 30 s 后才超时放行）。
+            self.logger.info(
+                "no reply for unhandled %s (cmd %d): not in cmd table", name, pkt.cmd
+            )
 
     def _dump_unknown(self, pkt: Frame) -> None:
         """把未收录命令的 body 落盘，供 scripts/identify_unknown.py 反查消息名。"""

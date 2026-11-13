@@ -227,6 +227,15 @@ class Session:
     def send_frame(self, cmd: int, body: bytes = b"") -> None:
         if self.closed:
             return
+        # 回包也记一条：登录时客户端会同时发几十个模块请求，缺命令号的那些
+        # 没有回包会让它显示「连接超时」并卡住输入（4.7.51 partial 表）。把
+        # `<-` 和 `->` 放一起才能一眼看出谁没回（docs/guide/03 坑 43）。
+        log.debug(
+            "<- %s (cmd %d) %d bytes",
+            self.runtime.registry.name_of(cmd),
+            cmd,
+            len(body),
+        )
         try:
             self.kcp.send(frame_mod.encode(cmd, body))
             self.kcp.flush()
