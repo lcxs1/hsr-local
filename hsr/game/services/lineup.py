@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 
-from hsr.protocol.gen import StarRail_pb2 as pb
+from hsr.protocol import pb
 
 # Out-of-combat HP is a display value only: hsr-local has no HP simulation, so
 # every snapshot (LineupInfo and GetLineupAvatarDataScRsp) reports full HP.

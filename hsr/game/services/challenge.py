@@ -52,7 +52,7 @@ from hsr.game.services import battle as battle_service
 from hsr.game.services import lineup as lineup_service
 from hsr.game.services import scene as scene_service
 from hsr.game.services.endgame import AS, MOC, PF, ChallengeNode
-from hsr.protocol.gen import StarRail_pb2 as pb
+from hsr.protocol import pb
 
 # 客户端认的触发战斗类型（pearl-sr 对所有挑战目标都用 TRIGGER_BATTLE）。
 TRIGGER_BATTLE = pb.MonsterBattleType.Value("MONSTER_BATTLE_TYPE_TRIGGER_BATTLE")

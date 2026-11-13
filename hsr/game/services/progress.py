@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Literal
 
 from hsr.log import get_logger
-from hsr.protocol.gen import StarRail_pb2 as pb
+from hsr.protocol import pb
 
 log = get_logger("hsr.progress")
 

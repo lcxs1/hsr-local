@@ -12,7 +12,7 @@ from pathlib import Path
 
 from hsr.config import PlayerSettings
 from hsr.game.services import freesr
-from hsr.protocol.gen import StarRail_pb2 as pb
+from hsr.protocol import pb
 
 # 所有人共用同一个解锁时间戳（2024-04）。客户端只拿它排序/显示，不校验具体值，
 # 换成当前时间反而会让「最近获得」列表变脏。

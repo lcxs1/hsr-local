@@ -6,7 +6,7 @@ import time
 from typing import TYPE_CHECKING
 
 from hsr.game.services import lineup as lineup_service
-from hsr.protocol.gen import StarRail_pb2 as pb
+from hsr.protocol import pb
 
 if TYPE_CHECKING:
     from hsr.game.router import Router

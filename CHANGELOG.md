@@ -2,6 +2,22 @@
 
 一行一条：日期 / 改了什么 / 为什么。原理、协议、数据细节写进 `docs/`，这里只记“什么时候动过什么”。
 
+## 2026-11-13
+
+- **4.7.51 真机验收：换队伍 / 换皮肤 / 进战斗 / 战斗结算全部通过**：18:53 真机会话里两次 `ReplaceLineupCsReq`（换队）、`DressAvatarSkin`/`TakeOffAvatarSkin`（换皮肤）、两场 `StartCocoonStage`+`PVEBattleResultCsReq`（`BATTLE_END_WIN`）全部无异常，整段 `handler .* failed` = 0。根因都是 4.8 字段改名：`LineupSlotData.slot→slot_id`(9→13)、`JoinLineupCsReq.slot→slot_id`(1→15)、`PVEBattleResultScRsp.check_identical→字段11 DLMDAIOKKEO`、`Challenge.star/score_two→stars/score_second`、`ChallengeGroup.taken_stars_count_reward→taken_challenge_reward`、`GetPlayerBoardDataScRsp.current_head_icon_id→head_icon_id`、`GetLineupAvatarDataScRsp.avatar_data_list→lineup_data_list`；全部写进 `proto/4.7.51/field_map.json`（只改名不动号），handler 侧不改。**教训**：空请求演练跑不出这类 bug，改成"填满字段"后 31/31 通过（`scripts/exercise_handlers.py`）。
+  依据：`logs/packets.log` 18:53:29–18:57:02 段；[notes/2026-11-13-4.8协议攻坚与验收](docs/notes/2026-11-13-4.8协议攻坚与验收.md) §2。
+- **4.8 命令号反查：79 → 140 条，handler 23 → 31**：新增四个可复用脚本 —— `scripts/probe_cmd_ids.py`（给客户端发非法包体，用 `Deserialize <msg> meet exception` + `_OnXxxScRsp` 栈名反查响应号，≈0.68 s/id）、`scripts/align_login_seq.py`（4.6 登录序列【名字+包长】对齐 4.8 序列【id+包长】，已知 id 当锚点，137 条里 119 条为段长完全相等的高置信配对）、`scripts/merge_cmd_ids.py`（要求 req/rsp 同 100 块双端齐全才入表，已有条目不覆盖）、`scripts/probe_to_cmdid.py`（单次探测结果转表项）。新增条目含 `GetPlayerBoardDataCsReq/ScRsp 2883/2854`、`GetMissionDataCsReq/ScRsp 1283/1254`、`GetMarkItemListCsReq/ScRsp 559/582`、`GetQuestDataCsReq/ScRsp 983/954`、`GetLineupAvatarDataScRsp 743`、`SwitchLineupIndexScRsp 788`、`GetCurBattleInfoCsReq/ScRsp 173/133`、`InteractPropScRsp 1442`、`GetUnlockTeleportScRsp 1466` 等。**教训**：4.8 的 id 与 4.6 无任何算术关系，社区表（HyacineDH / FreeSR）全不对，只能拿客户端当 oracle。
+  依据：`logs/probe_ids.json`、`logs/cs_ids.json`、[notes/2026-11-13-4.8协议攻坚与验收 §3](docs/notes/2026-11-13-4.8协议攻坚与验收.md)。
+- **进游戏卡加载 13–14 s → 4.7 s**：两个叠加原因。(1) hotfix 的 `ifix_version=17102685` 在本地 CDN 无包，客户端 `M_IFixV.bytes` 连续 404 并按 3 s/9 s 退避重试——`data/hotfix.json` 的 4.7.51 条目改为 `ifix_version="0"` + `output_0_…` URL，不再请求 ifix；(2) 4.8 改了 `PlayerSettingInfo` 的子消息结构，空/缺字段让 `RPG.Client.PlayerModule._CmdGetBasicInfoScRsp` NRE——`handlers/login.py` 的 nested 模式改成按 schema 遍历、给所有 message 类型子字段填空实例（`is_repeated` 跳过），新版本加字段无需改代码。
+  依据：`logs/packets.log` 18:48/19:03 两次登录（连接→可移动 4.7 s / 5.8 s）。
+- **回归**：`unittest` 250 OK（更新 `test_partial_command_table` 里"GetMissionDataCsReq 不在表里"的过期断言）、`check_proto` 31 handlers / 48 skipped / OK、`exercise_handlers` 31/31、五链 replay PASS、`check_docs` ok。
+  依据：本轮收工前统一跑。
+
+- **4.7.51 真机首登通过：4.8 描述符快照 + 字段改名 + partial cmd 表**：新增 `hsr/protocol/dynpb.py`（私有 `DescriptorPool` 从 `proto/4.7.51/classes.desc` 运行时建类）和 `hsr/protocol/pb.py`（handler 统一取类，`Session._run` 用 contextvar 绑定当前 profile 的快照）；4.8 改名的字段用 `proto/4.7.51/field_map.json` 在加载时改回 handler 名字（**字段号不动**），枚举按值编号兼容 4.6 名字，`MazeGroup→MapInfoGroup` 走消息别名；`versions/4.7.51.toml` 加 `cmd_table = "partial"`，`Router.add` 对 79 条表外的 56 个 handler 只跳过不报错，`check_proto.py` 打印 skipped；新增 `tests/test_dynpb.py`（6 条）。真机 18:04 登录链 cmd 73→83→583→383→753→1407，角色进入 20313 可跑图；250 单测 + check_proto + replay + check_docs 绿。
+  依据：`logs/test/debug-screen.png`、`logs/packets.log` 18:04:11 段、[reference/06 §9](docs/reference/06-4.7.51接入.md)。
+- **接入 4.7.51 客户端（`OSBETAWin4.7.51` / build `17100438`）**：新增 `versions/4.7.51.toml`、`data/hotfix.json` 的真实 CDN 条目；`config.toml` 默认 profile、`game_test.ps1 -Client 4.7.51`、`hsr/config.py`/`version.py` 默认值同步；新增 [reference/06](docs/reference/06-4.7.51接入.md)。离线：244 单测 + `--strict` + `query_gateway`（lua 17099231）通过。真机排查（reference/06 §8）：4.7.51 实为 **4.8 beta**，cmd id 与字段号整体重排；已修 `GateServer` 线格式（客户端能过资源校验、UDP 握手成功，首包 cmd 73），新 schema/cmd 表从 ppSR 取出到 `proto/4.7.51/`（同日的首登成功记录见上一条）。
+  依据：`E:\SiFu\HSRSiFu\StarRail_4.7.51` 的 `GameAssembly.dll` / `InstallVersion.bin` / `M_ArchiveV.bytes` + ppSR 4.7.5X 的 `misc/hotfix.json`。
+
 ## 2026-11-12
 
 - **GitHub 发布前整理（仓库卫生 + 去机器化）**：新增 GPL-3.0 `LICENSE`、`.gitattributes`、`requirements.txt` / `requirements-dev.txt`、`saves/.gitkeep`；`.gitignore` 补齐 `.tmp*/`、`*.pre-lobby`、编辑器/系统文件；从索引移除 `data/endgame.json.pre-lobby`（1.1 MB 备份）与第三方 goproxy CA `firefly-go-proxy-ca.crt`；`config.toml` 的 `client_dir` 清空（4.7.0 本地 CDN 改为显式开启）、清掉 `AGENTS.md` 残留引用；`scripts/check.ps1` 的 ruff 查找不再写死别项目路径；README 重写为 GitHub 入口（环境要求、安装、目录结构、免责声明、许可），docs/README §3 数字更新为 242 单测 / 79 handler；`PROVENANCE.json` 去掉机器本地路径。

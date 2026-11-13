@@ -39,7 +39,7 @@ from hsr.game.services.roster import (
     lightcone_uid,
     relic_uid,
 )
-from hsr.protocol.gen import StarRail_pb2 as pb
+from hsr.protocol import pb
 
 # Keys the page merges next to ``data`` in the POST body (its ``extraData``).
 # ``multi_path`` is only sent when "允许修改命途" is on; ``lua`` is never applied.

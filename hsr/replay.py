@@ -28,7 +28,7 @@ from hsr.game.services import snapshot
 from hsr.game.services.lineup import LineupState
 from hsr.game.services.save import SaveStore
 from hsr.net.session import Session
-from hsr.protocol.gen import StarRail_pb2 as pb
+from hsr.protocol import pb
 
 
 class ReplayError(RuntimeError):

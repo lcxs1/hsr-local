@@ -1,8 +1,9 @@
 # hsr-local
 
-Python 写的本地单人《崩坏：星穹铁道》私服，目标客户端 **4.6.54**
-（`OSBETAWin4.6.54`，build `16927089`）与 **4.7.0 CN**（`CNPRODWin4.7.0`，build `17108910`，
-`--profile 4.7.0`）。纯 Python UDP+KCP 直连，不使用 TCP shim、客户端补丁或密码门。
+Python 写的本地单人《崩坏：星穹铁道》私服，默认目标客户端 **4.7.51**（`OSBETAWin4.7.51`，build
+`17100438`），同时保留 **4.6.54**（`OSBETAWin4.6.54`，build `16927089`）与 **4.7.0 CN**
+（`CNPRODWin4.7.0`，build `17108910`）两个 profile。纯 Python UDP+KCP 直连，不使用 TCP shim、
+客户端补丁或密码门。
 
 > **免责声明**：本项目仅供学习、研究和本地调试使用，与 miHoYo / HoYoverse 无关。
 > 请使用自己合法拥有的游戏客户端，并自行确认符合当地法律与游戏条款。
@@ -15,7 +16,7 @@ Python 写的本地单人《崩坏：星穹铁道》私服，目标客户端 **4
 >
 > **变更日志**：[CHANGELOG.md](CHANGELOG.md) —— 每次合入一行，不写进 docs。
 
-## 当前状态（2026-11-12）
+## 当前状态（2026-11-13）
 
 | 模块 | 状态 |
 |---|---|
@@ -35,8 +36,9 @@ Python 写的本地单人《崩坏：星穹铁道》私服，目标客户端 **4
 | 异相仲裁（Peak）/ Tierce | ⬜ 未实现，数据已就绪 |
 | 掉落 / 背包结算 | ⏸ 按决定不做 |
 | 地图「导航」UI | ⏸ 数据已下发，无法自动验证 |
+| 4.7.51（`OSBETAWin4.7.51`，4.8 beta） | ✅ 真机通过：登录 / 跑图 / 换队伍 / 换皮肤 / 进战斗 / 结算（4.8 描述符快照 + 140 条 cmd 表；48 个 handler 待补 id） |
 
-当前规模：**242 单测 / 79 handler**，`scripts\check.ps1` 全绿。
+当前规模：**250 单测 / 79 handler（4.6.54 全量，4.7.51 partial 为 31）**，`scripts\check.ps1` 全绿。
 数字以 [docs/README §3](docs/README.md#3-关键数字唯一事实源) 为准。
 
 > **4.7.0 CN 已真机通过**：`versions/4.7.0.toml` + 本地 CDN 回放（`features.local_cdn`）+
@@ -44,13 +46,21 @@ Python 写的本地单人《崩坏：星穹铁道》私服，目标客户端 **4
 > 遗留：4.7 新皮肤「群星乐透」未解锁、深渊未测。结论/证据见
 > [docs/reference/05-4.7.0兼容性实测](docs/reference/05-4.7.0兼容性实测.md) §5.1。
 
+> **4.7.51 真机通过（2026-11-13）**：客户端是 **4.8 beta**，cmd id 与字段号整体重排。
+> 现在用 `proto/4.7.51/classes.desc`（4,993 消息）+ `field_map.json`（字段改名适配）+
+> **140 条 cmd 表**（`cmd_table = "partial"`）跑通登录 / 跑图 / 换队伍 / 换皮肤 / 进战斗 / 结算；
+> 进游戏加载从 13 s 降到 4.7 s。还没补的 48 个 handler 会在客户端请求时记 `UNKNOWN_<id>`，
+> 反查命令号的方法与教训见
+> [docs/reference/06-4.7.51接入](docs/reference/06-4.7.51接入.md) §10/§11 与
+> [docs/notes/2026-11-13-4.8协议攻坚与验收](docs/notes/2026-11-13-4.8协议攻坚与验收.md)。
+
 ## 环境要求
 
 | 项 | 要求 |
 |---|---|
 | 系统 | Windows 10/11（`run.ps1` / 真机脚本按 Windows 写；服务端代码本身不依赖 Windows） |
-| Python | **3.13+**（本仓库在 3.14 上跑通 242 单测） |
-| 客户端 | 4.6.54（`OSBETAWin4.6.54`）或 4.7.0 CN（`CNPRODWin4.7.0`） |
+| Python | **3.13+**（本仓库在 3.14 上跑通 250 单测） |
+| 客户端 | 4.7.51（`OSBETAWin4.7.51`，默认）、4.6.54（`OSBETAWin4.6.54`）或 4.7.0 CN（`CNPRODWin4.7.0`） |
 | 代理 | 能把登录域名转到 `127.0.0.1:21000` 的 HTTPS 代理（例如 firefly-go-proxy） |
 
 ## 快速开始
@@ -72,13 +82,13 @@ py -3.13 -m venv .venv
 #    把 $Client 换成你的客户端目录
 $Client = 'X:\HSRSiFu'
 Start-Process "$Client\firefly-go-proxy.exe" -ArgumentList `
-  '-e', "$Client\StarRail_4.6.54\StarRail.exe", '-p', '9978' -Verb RunAs
+  '-e', "$Client\StarRail_4.7.51\StarRail.exe", '-p', '9978' -Verb RunAs
 ```
 
 正常应看到：
 
 ```text
-  hsr-local · OSBETAWin4.6.54 · profile=4.6.54 · uid=10001
+  hsr-local · OSBETAWin4.7.51 · profile=4.7.51 · uid=10001
   game   udp://127.0.0.1:23301
   sdk    http://127.0.0.1:21000
 ```
@@ -87,14 +97,14 @@ Start-Process "$Client\firefly-go-proxy.exe" -ArgumentList `
 停在 HoYoPass 登录窗、一直不连接，通常是代理没有拦截 HTTPS。
 
 首次运行会自动创建 `saves/` 和 `logs/`；uid、角色名、端口、默认队伍都在
-[config.toml](config.toml)。4.7.0 CN 还要把 `[paths].client_dir` 指向客户端安装目录，
-并把 `[features].local_cdn` 设为 `true`（本地 CDN 回放），详见
-[docs/reference/05](docs/reference/05-4.7.0兼容性实测.md)。
+[config.toml](config.toml)。4.7.51 的 hotfix 是真实 CDN 条目，默认不用额外配置；4.7.0 CN 则要把
+`[paths].client_dir` 指向客户端安装目录、把 `[features].local_cdn` 设为 `true`（本地 CDN 回放），
+详见 [docs/reference/05](docs/reference/05-4.7.0兼容性实测.md)。
 
 ## 常用命令
 
 ```powershell
-# 全量回归：242 单测 + 离线核心链 + 挑战上下半链 + proto 检查 + ruff + 文档检查
+# 全量回归：244 单测 + 离线核心链 + 挑战上下半链 + proto 检查 + ruff + 文档检查
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\check.ps1
 
 # 真机测试：起服务端/代理/游戏、截图、出报告
@@ -124,8 +134,8 @@ hsr/            服务端代码
   tools/        解码 / 探针 / Lua 控制台
 proto/          StarRail.proto、CmdId.json、描述符
 data/           静态数据（角色、关卡、终局、教程）
-versions/       客户端版本 profile（4.6.54 / 4.7.0）
-tests/          单元测试（242 个）
+versions/       客户端版本 profile（4.7.51 / 4.6.54 / 4.7.0）
+tests/          单元测试（244 个）
 scripts/        回归、真机测试、数据导出
 docs/           指南 / 设计 / 参考 / 笔记
 lua/            Lua 控制台脚本
@@ -148,6 +158,8 @@ logs/           运行时日志（不入库）
 | [reference/02-开发与版本更新](docs/reference/02-开发与版本更新.md) | 包体/数据来源、升级 SOP、工具链 |
 | [reference/03-参考工程与索引](docs/reference/03-参考工程与索引.md) | 参考工程评估、可移植清单、代码索引 |
 | [reference/04-特性对照](docs/reference/04-特性对照.md) | 三套参考实现 + 本项目 MVP 规划对比 |
+| [reference/05-4.7.0兼容性实测](docs/reference/05-4.7.0兼容性实测.md) | 4.7.0 版本键、协议兼容、资源校验、真机记录 |
+| [reference/06-4.7.51接入](docs/reference/06-4.7.51接入.md) | 4.7.51 指纹、改动清单、离线验证、首登/换表步骤 |
 
 历史资料在 [docs/archive/](docs/archive/)，只用于追溯，不作为现状依据。
 

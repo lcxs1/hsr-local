@@ -47,12 +47,13 @@ NO_RESPONSE = {"PlayerLogoutCsReq"}
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--profile", default=None, help="versions/<name>.toml (default: config.toml)")
+    ap.add_argument("--verbose", action="store_true", help="list skipped handlers")
     args = ap.parse_args()
 
     cfg = AppConfig.load()
     name = args.profile or cfg.server.profile
     profile = VersionProfile.load(ROOT, name)
-    registry = Registry(profile.proto_dir)
+    registry = Registry(profile.proto_dir, strict=not profile.partial)
     router = Router(cfg, registry, logging.getLogger("hsr"))
     register_all(router)
 
@@ -84,6 +85,13 @@ def main() -> int:
 
     print(f"profile: {profile.name} ({profile.version}/{profile.client_build})")
     print(f"handlers: {len(router.handlers)}")
+    if router.skipped:
+        # Partial tables are normal while a new client is being ported; the id is
+        # simply not recovered yet, so this is a note, not a failure.
+        print(f"skipped (no command id yet): {len(router.skipped)}")
+        if args.verbose:
+            for name in router.skipped:
+                print(f"  skip {name}")
     for error in errors:
         print(f"ERROR {error}", file=sys.stderr)
     if errors:

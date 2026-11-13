@@ -1,0 +1,22 @@
+# 4.7.51 beta 客户端（OSBETAWin4.7.51，build 17100438）。
+# 版本键读自 GameAssembly.dll，build 读自 InstallVersion.bin / M_ArchiveV.bytes
+# （17100438 = asb output id，与 4.6.54 / 4.7.0 口径一致）。
+# 2026-11-13 真机结论：4.7.51 是 4.8 beta，cmd id 与字段号整体重排，4.6.54 的
+# proto 只能走到「握手 + cmd 73」。新的 schema/cmd 表已取出到 proto/4.7.51/（WIP），
+# 生成 pb2 之前不要指望登录成功。详见 docs/reference/06-4.7.51接入.md §8。
+name = "4.7.51"
+version = "OSBETAWin4.7.51"
+client_build = 17100438
+hotfix_key = "OSBETAWin4.7.51"
+proto_dir = "proto/4.7.51"
+content_dir = "data"
+# 4.8 beta 的命令号整体重排。现在只有参考实现（ppSR）实现的 79 条，其余 handler
+# 先跳过注册，等抓到客户端真实命令号再补；见 docs/reference/06-4.7.51接入.md。
+cmd_table = "partial"
+
+# 4.8 网关字段再次改名（ip=15/port=5 等整体重排）。query_gateway 走
+# hsr/dispatch/gateway_wire.py 的手写编码器，这里的别名只给 hotfix 缓存和
+# check_proto 用，必须指向 4.8 快照里真实存在的字段名。
+[field_aliases]
+asset_bundle_url_b = "base_asset_bundle_url"
+lua_version = "lua_patch_version"

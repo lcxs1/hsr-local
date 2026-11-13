@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING
 
-from hsr.protocol.gen import StarRail_pb2 as pb
+from hsr.protocol import pb
 
 if TYPE_CHECKING:
     from hsr.game.router import Router
@@ -58,9 +58,15 @@ async def on_basic_info(session: Session, req: pb.GetBasicInfoCsReq) -> pb.GetBa
         # Same message, but with every nested sub-message present so a client
         # that dereferences them cannot hit a null.
         setting = pb.PlayerSettingInfo()
-        setting.OJPAODIHAJE.CopyFrom(pb.PNOLLIAKGDB())
-        setting.ANKIDJJINEI.CopyFrom(pb.LJFJOGEEGPJ())
-        setting.CMFCOOEEECB.CopyFrom(pb.JPGACKPLGCD())
+        # 每个 message 类型的子字段都给一个空实例：4.6.54 只补了其中三个，
+        # 4.8 又把 OJPAODIHAJE 换成 relic_final_setting / CustomValue，
+        # 客户端拿到 null 就在 _CmdGetBasicInfoScRsp 里 NRE。按 schema 遍历最省事。
+        for field in setting.DESCRIPTOR.fields:
+            if field.type != 11 or getattr(field, "is_repeated", False):
+                continue
+            sub = getattr(pb, field.message_type.name, None)
+            if sub is not None:
+                getattr(setting, field.name).CopyFrom(sub())
         rsp.player_setting_info.CopyFrom(setting)
     # mode == "omit": leave player_setting_info unset (pearl-sr / sr-recover).
     return rsp

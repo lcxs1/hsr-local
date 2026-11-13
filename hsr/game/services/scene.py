@@ -22,7 +22,7 @@ from __future__ import annotations
 import secrets
 from dataclasses import dataclass, field
 
-from hsr.protocol.gen import StarRail_pb2 as pb
+from hsr.protocol import pb
 
 
 def _lighten_sections(world) -> list[int]:
@@ -224,20 +224,24 @@ def build_scene(session) -> pb.SceneInfo:
     entity ids built by :func:`avatar_entities`.
     """
     state = session.scene
-    return pb.SceneInfo(
-        plane_id=state.plane_id,
-        floor_id=state.floor_id,
-        entry_id=state.entry_id,
-        dimension_id=state.dimension_id,
-        game_mode_type=state.game_mode_type,
-        world_id=state.world_id,
-        leader_entity_id=leader_entity_id(session),
-        client_pos_version=state.client_pos_version,
-        scene_identifier=state.identifier,
-        entity_group_list=entity_groups(session),
-        interact_id=state.interact_id,
-        floor_saved_data=dict(state.saved_data),
-    )
+    fields = pb.SceneInfo.DESCRIPTOR.fields_by_name
+    values = {
+        "plane_id": state.plane_id,
+        "floor_id": state.floor_id,
+        "entry_id": state.entry_id,
+        "dimension_id": state.dimension_id,
+        "game_mode_type": state.game_mode_type,
+        "world_id": state.world_id,
+        "leader_entity_id": leader_entity_id(session),
+        "client_pos_version": state.client_pos_version,
+        "scene_identifier": state.identifier,
+        "entity_group_list": entity_groups(session),
+        "interact_id": state.interact_id,
+        "floor_saved_data": dict(state.saved_data),
+    }
+    # 4.8 replaced the `floor_saved_data` map with repeated CustomSaveData; the
+    # client rebuilds the floor from scene tables, so just omit the field there.
+    return pb.SceneInfo(**{k: v for k, v in values.items() if k in fields})
 
 
 def spawn_crystals(session) -> list[pb.SceneEntityGroupInfo]:

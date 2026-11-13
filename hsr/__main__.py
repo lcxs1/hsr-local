@@ -31,7 +31,7 @@ async def _run(rt: Runtime) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="hsr-local server (4.6.54)")
+    parser = argparse.ArgumentParser(description="hsr-local server (profile: versions/<name>.toml)")
     parser.add_argument("--config", default=None, help="path to config.toml")
     parser.add_argument("--profile", default=None, help="override versions/<name>.toml")
     parser.add_argument(

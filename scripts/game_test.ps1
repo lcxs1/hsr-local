@@ -9,7 +9,7 @@
     challenge（默认，2026-11-11 起的重点）
         专门验证「混沌回忆 上半 → 换组 → 下半 → 结算 → 退出」这条链。
         脚本不点鼠标，只做环境和证据：
-          1. 起服务端（默认 --profile 4.7.0）、等登录；
+          1. 起服务端（默认 --profile 4.7.51）、等登录；
           2. 每秒扫服务端日志 + packets.log，把事件打进时间线：
              start challenge / challenge battle info / cast / battle result /
              challenge advance / challenge settle / leave challenge；
@@ -44,8 +44,8 @@ param(
     [string]$Scenario = 'challenge',
 
     # 客户端版本：决定 exe、Player.log 与服务端 --profile。
-    [ValidateSet('4.6.54', '4.7.0')]
-    [string]$Client = '4.7.0',
+    [ValidateSet('4.6.54', '4.7.0', '4.7.51')]
+    [string]$Client = '4.7.51',
 
     [switch]$NoLaunch,      # 不启动代理/游戏，你自己启动
     [switch]$NoGame,        # 只打印测试步骤
@@ -91,6 +91,11 @@ $ClientProfiles = @{
     '4.7.0' = @{
         Exe = 'E:\SiFu\HSRSiFu\StarRail_CN_4.7.0\StarRail.exe'
         Log = Join-Path $env:USERPROFILE 'AppData\LocalLow\miHoYo\崩坏：星穹铁道\Player.log'
+    }
+    # 4.7.51 是 OS 渠道的 beta 包（OSBETAWin4.7.51），日志回到 Cognosphere 目录。
+    '4.7.51' = @{
+        Exe = 'E:\SiFu\HSRSiFu\StarRail_4.7.51\StarRail.exe'
+        Log = Join-Path $env:USERPROFILE 'AppData\LocalLow\Cognosphere\Star Rail\Player.log'
     }
 }
 if (-not $GameExe) { $GameExe = $ClientProfiles[$Client].Exe }

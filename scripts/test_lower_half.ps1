@@ -17,8 +17,8 @@
     powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test_lower_half.ps1 -AnalyseOnly -Run logs\test\test-20261112-185701.server.log
 #>
 param(
-    [ValidateSet('4.6.54', '4.7.0')]
-    [string]$Client = '4.7.0',
+    [ValidateSet('4.6.54', '4.7.0', '4.7.51')]
+    [string]$Client = '4.7.51',
 
     [switch]$NoLaunch,      # 代理/游戏自己启动，只让脚本起服务端
     [switch]$AnalyseOnly,   # 不启动任何东西，只分析 -Run / 最新的一轮

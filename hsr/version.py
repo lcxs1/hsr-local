@@ -19,7 +19,7 @@ from hsr.log import get_logger
 
 log = get_logger("hsr.version")
 
-DEFAULT_PROFILE = "4.6.54"
+DEFAULT_PROFILE = "4.7.51"
 
 
 class ProfileError(RuntimeError):
@@ -35,6 +35,9 @@ class VersionProfile:
     proto_dir: Path
     content_dir: Path
     field_aliases: dict[str, str] = field(default_factory=dict)
+    # True when proto_dir only lists the command ids that are known so far, so
+    # the router must skip handlers whose id has not been recovered yet.
+    partial: bool = False
 
     @classmethod
     def load(cls, root: str | Path, name: str = DEFAULT_PROFILE) -> VersionProfile:
@@ -64,6 +67,7 @@ class VersionProfile:
             proto_dir=proto_dir,
             content_dir=content_dir,
             field_aliases=aliases,
+            partial=raw.get("cmd_table") == "partial",
         )
         return profile
 

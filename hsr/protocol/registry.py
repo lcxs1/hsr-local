@@ -27,7 +27,13 @@ class Registry:
     ScRsp (`GetMonopolyFriendRankingList*`). Everything here is defensive.
     """
 
-    def __init__(self, proto_dir: str | Path, pb_module: Any | None = None):
+    def __init__(
+        self,
+        proto_dir: str | Path,
+        pb_module: Any | None = None,
+        *,
+        strict: bool = True,
+    ):
         self.proto_dir = Path(proto_dir)
         cmd_path = self.proto_dir / "CmdId.json"
         raw = json.loads(cmd_path.read_text(encoding="utf-8"))
@@ -36,8 +42,21 @@ class Registry:
         for name, cmd in self.name_to_id.items():
             self.id_to_names[cmd].append(name)
 
+        # A profile usually ships the generated 4.6.54 module.  Newer snapshots
+        # (4.8 / 4.7.51 beta) only have a FileDescriptorSet: build their message
+        # classes in a private pool so both snapshots can coexist in one process.
+        self.strict = strict
+        self.partial = not strict
         if pb_module is None:
-            pb_module = importlib.import_module("hsr.protocol.gen.StarRail_pb2")
+            desc = self.proto_dir / "classes.desc"
+            if desc.exists():
+                from hsr.protocol import dynpb
+
+                pb_module = dynpb.load(f"{self.proto_dir.name}_pb2", desc)
+                self.snapshot = desc.name
+            else:
+                pb_module = importlib.import_module("hsr.protocol.gen.StarRail_pb2")
+                self.snapshot = "StarRail_pb2"
         self.pb = pb_module
 
     # ------------------------------------------------------------------ ids
@@ -46,6 +65,10 @@ class Registry:
             return self.name_to_id[name]
         except KeyError as exc:
             raise ProtocolError(f"unknown command name: {name}") from exc
+
+    def has(self, name: str) -> bool:
+        """True when the active cmd table knows `name`."""
+        return name in self.name_to_id
 
     def names_of(self, cmd: int) -> list[str]:
         return list(self.id_to_names.get(cmd, ()))

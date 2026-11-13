@@ -19,8 +19,10 @@ class VersionProfileTest(unittest.TestCase):
         self.assertTrue(self.profile.proto_dir.is_dir())
 
     def test_field_alias(self):
-        self.assertEqual(self.profile.field_name("asset_bundle_url_b"), "asset_bundle_url_android")
-        self.assertEqual(self.profile.field_name("lua_version"), "mdk_res_version")
+        # 4.6.54 / 4.7.0 的网关字段别名（4.7.51 是 4.8 字段名，见 test_4751_profile）
+        legacy = VersionProfile.load(ROOT, "4.6.54")
+        self.assertEqual(legacy.field_name("asset_bundle_url_b"), "asset_bundle_url_android")
+        self.assertEqual(legacy.field_name("lua_version"), "mdk_res_version")
         self.assertEqual(self.profile.field_name("ip"), "ip")
 
     def test_world_pack_loaded(self):
@@ -41,7 +43,20 @@ class VersionProfileTest(unittest.TestCase):
         self.assertEqual(profile.field_name("asset_bundle_url_b"), "asset_bundle_url_android")
         self.assertEqual(profile.field_name("lua_version"), "mdk_res_version")
         # 4.7.0 实测可直接用 4.6.54 的 proto 快照（reference/05 §2）
-        self.assertEqual(profile.proto_dir, self.profile.proto_dir)
+        self.assertEqual(profile.proto_dir, ROOT / "proto")
+
+    def test_4751_profile(self):
+        """4.7.51 beta: OSBETAWin4.7.51 / build 17100438, 4.8 协议快照。"""
+        profile = VersionProfile.load(ROOT, "4.7.51")
+        self.assertEqual(profile.version, "OSBETAWin4.7.51")
+        self.assertEqual(profile.client_build, 17100438)
+        self.assertEqual(profile.hotfix_key, "OSBETAWin4.7.51")
+        self.assertEqual(profile.proto_dir, ROOT / "proto" / "4.7.51")
+        self.assertTrue(profile.partial)
+        self.assertTrue((profile.proto_dir / "classes.desc").is_file())
+        # 4.8 网关字段：base_asset_bundle_url / lua_patch_version（reference/06 §8）
+        self.assertEqual(profile.field_name("asset_bundle_url_b"), "base_asset_bundle_url")
+        self.assertEqual(profile.field_name("lua_version"), "lua_patch_version")
 
 
 if __name__ == "__main__":

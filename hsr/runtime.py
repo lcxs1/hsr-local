@@ -83,7 +83,10 @@ class Runtime:
                 version_profile.version,
                 version_profile.client_build,
             )
-        registry = Registry(version_profile.proto_dir)
+        registry = Registry(
+            version_profile.proto_dir, strict=not version_profile.partial
+        )
+
         router = Router(cfg, registry, logger)
 
         from hsr.game.handlers import register_all
@@ -118,6 +121,11 @@ class Runtime:
             version_profile.client_build,
             version_profile.proto_dir,
         )
+        if router.skipped:
+            logger.info(
+                "partial cmd table: %d handlers skipped (no command id yet)",
+                len(router.skipped),
+            )
         rt = cls(
             cfg=cfg,
             registry=registry,

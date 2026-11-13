@@ -1,0 +1,97 @@
+{
+  "EquipRelic": {
+    "relic_slot": "type"
+  },
+  "SceneActorInfo": {
+    "character_avatar_type": "avatar_type"
+  },
+  "LineupAvatar": {
+    "character_avatar_type": "avatar_type",
+    "slot_id": "slot"
+  },
+  "LineupInfo": {
+    "lineup_type": "extra_lineup_type"
+  },
+  "ChangeLineupLeaderCsReq": {
+    "slot_id": "slot"
+  },
+  "SceneMonsterWave": {
+    "wave_index": "battle_wave_id"
+  },
+  "MazePropState": {
+    "tid": "config_id"
+  },
+  "SceneMapInfo": {
+    "cur_map_entry_id": "entry_id",
+    "map_info_prop_list": "maze_prop_list",
+    "group_list": "maze_group_list",
+    "chest_info_list": "chest_list"
+  },
+  "AvatarPathData": {
+    "enhanced_id": "unk_enhanced_id",
+    "ex_rank": "ExRankList",
+    "unlock_time": "unlock_timestamp"
+  },
+  "MotionInfo": {
+    "pos": "pos_index",
+    "rot": "rot_index"
+  },
+  "ChangeLineupLeaderScRsp": {
+    "slot_id": "slot"
+  },
+  "GetAllLineupDataScRsp": {
+    "current_regular_team_index": "cur_index"
+  },
+  "GetCurLineupDataScRsp": {
+    "lineup_info": "lineup"
+  },
+  "BattleAvatar": {
+    "character_avatar_type": "avatar_type",
+    "ex_rank": "ExRankList",
+    "total_power": "GDIMKFNECOK",
+    "EMLBBPPIGFO": "ALNJENINBPN",
+    "BAGFIANODIF": "CHEFGGPEJKL"
+  },
+  "__messages__": {
+    "MazeGroup": "MapInfoGroup"
+  },
+  "SyncLineupNotify": {
+    "lineup_info": "lineup",
+    "ReasonList": "reason_list"
+  },
+  "SceneInfo": {
+    "curr_player_world_id": "world_id",
+    "story_line_id": "game_story_line_id",
+    "interact_id_64": "interact_id"
+  },
+  "StartCocoonStageCsReq": {
+    "total_wave": "wave"
+  },
+  "GetCurSceneInfoScRsp": {
+    "scene_info": "scene"
+  },
+  "PVEBattleResultScRsp": {
+    "DLMDAIOKKEO": "check_identical"
+  },
+  "LineupSlotData": {
+    "slot_id": "slot",
+    "character_avatar_type": "avatar_type"
+  },
+  "JoinLineupCsReq": {
+    "slot_id": "slot",
+    "character_avatar_type": "avatar_type"
+  },
+  "GetLineupAvatarDataScRsp": {
+    "lineup_data_list": "avatar_data_list"
+  },
+  "Challenge": {
+    "stars": "star",
+    "score_second": "score_two"
+  },
+  "GetPlayerBoardDataScRsp": {
+    "head_icon_id": "current_head_icon_id"
+  },
+  "ChallengeGroup": {
+    "taken_challenge_reward": "taken_stars_count_reward"
+  }
+}

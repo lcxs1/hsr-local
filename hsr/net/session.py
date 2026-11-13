@@ -206,17 +206,22 @@ class Session:
                 log.warning("session queue full, dropping cmd=%s", pkt.cmd)
 
     async def _run(self) -> None:
-        try:
-            while not self.closed:
-                pkt = await self.queue.get()
-                try:
-                    await self.runtime.router.dispatch(self, pkt)
-                except Exception:  # noqa: BLE001 - one bad packet must not kill the worker
-                    log.exception("session worker error on cmd=%s", pkt.cmd)
-                finally:
-                    self.queue.task_done()
-        except asyncio.CancelledError:
-            pass
+        from hsr.protocol import pb
+
+        # Handlers resolve classes through hsr.protocol.pb, and the worker (plus
+        # every task it spawns) must use the snapshot of the profile it serves.
+        with pb.using(self.runtime.registry.pb):
+            try:
+                while not self.closed:
+                    pkt = await self.queue.get()
+                    try:
+                        await self.runtime.router.dispatch(self, pkt)
+                    except Exception:  # noqa: BLE001 - one bad packet must not kill the worker
+                        log.exception("session worker error on cmd=%s", pkt.cmd)
+                    finally:
+                        self.queue.task_done()
+            except asyncio.CancelledError:
+                pass
 
     # ----------------------------------------------------------------- send
     def send_frame(self, cmd: int, body: bytes = b"") -> None:

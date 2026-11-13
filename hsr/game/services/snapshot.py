@@ -8,7 +8,7 @@ the incremental push and the full response can never drift apart.
 
 from __future__ import annotations
 
-from hsr.protocol.gen import StarRail_pb2 as pb
+from hsr.protocol import pb
 
 
 def avatar_sync(session) -> pb.AvatarSync:

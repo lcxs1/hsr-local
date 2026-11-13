@@ -26,6 +26,15 @@
         "lua_version": "16927297",
         "ifix_version": "0"
     },
+    "OSBETAWin4.7.51": {
+        "asset_bundle_url": "LOCAL_CDN/asb/BetaLive/output_17100438_7492adb59c20_603efdb7d3ab04",
+        "asset_bundle_url_b": "LOCAL_CDN/asb/BetaLive/output_17099110_3acea2eecdaa_0e106ffdeb116a",
+        "ex_resource_url": "LOCAL_CDN/design_data/BetaLive/output_17128507_3d20951b6e6e_97ddbb06f4034e",
+        "lua_url": "LOCAL_CDN/lua/BetaLive/output_17099231_7f29317fb878_0101e96c57f397",
+        "ifix_url": "LOCAL_CDN/ifix/BetaLive/output_0_40d2ce0253_6d871f8bca6eb4",
+        "lua_version": "17099231",
+        "ifix_version": "0"
+    },
     "CNPRODWin4.7.0": {
         "asset_bundle_url": "LOCAL_CDN/asb/Live/output_17108910_a94e4821d0e7_924115c2d2d970",
         "asset_bundle_url_b": "LOCAL_CDN/asb/Live/output_17108910_a94e4821d0e7_924115c2d2d970",

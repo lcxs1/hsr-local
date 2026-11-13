@@ -27,8 +27,11 @@ class DispatchTest(unittest.TestCase):
         self.assertGreater(len(msg.SerializeToString()), 50)
 
     def test_gateway_known_build(self):
+        # 通用 GateServer 构造器仍按 4.6.54 快照生成；4.7.51 走手写线格式
+        # （gateway_wire / test_gateway_4751_wire），见 reference/06 §8。
+        rt = SimpleNamespace(cfg=self.rt.cfg, profile=VersionProfile.load(ROOT, "4.6.54"))
         store = HotfixStore(self.rt.cfg.hotfix_path)
-        msg = build_gateway(self.rt, store, "OSBETAWin4.6.54")
+        msg = build_gateway(rt, store, "OSBETAWin4.6.54")
         self.assertEqual(msg.ip, "127.0.0.1")
         self.assertEqual(msg.port, self.rt.cfg.server.game_port)
         self.assertTrue(msg.asset_bundle_url.startswith("https://"))
@@ -42,7 +45,17 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(entry["asset_bundle_url"], FALLBACK["asset_bundle_url"])
         # same platform, unknown build -> closest cached build (not the fallback)
         closest = store.for_version("OSBETAWin4.9.99")
-        self.assertIn("autopatchos.starrails.com", closest["asset_bundle_url"])
+        # 4.7.51 是当前 OSBETAWin 里 build 最大的一条，且走 LOCAL_CDN（reference/06 §6）。
+        self.assertIn("output_17100438", closest["asset_bundle_url"])
+
+    def test_hotfix_4751_uses_local_replay(self):
+        """4.7.51 走本地回放：官方 beta CDN 已 404（reference/06 §6）。"""
+        store = HotfixStore(self.rt.cfg.hotfix_path)
+        entry = store.for_version("OSBETAWin4.7.51")
+        self.assertTrue(entry["asset_bundle_url"].startswith("LOCAL_CDN/"))
+        self.assertEqual(entry["lua_version"], "17099231")
+        # ifix_version=0：客户端本地没有 IFix 补丁，报非 0 版本会让它反复下载并 404。
+        self.assertEqual(entry["ifix_version"], "0")
 
     def test_gateway_rewrites_local_cdn_entries(self):
         cfg = AppConfig.load()

@@ -30,9 +30,9 @@ class ServerSettings(BaseModel):
     # Which versions/<name>.toml to serve.  The profile is authoritative for
     # the client build; the two fields below are legacy fallbacks used by tests
     # and by tools that construct ServerSettings() directly.
-    profile: str = "4.6.54"
-    version: str = "OSBETAWin4.6.54"
-    client_build: int = 16927089
+    profile: str = "4.7.51"
+    version: str = "OSBETAWin4.7.51"
+    client_build: int = 17100438
     single_client: bool = True
     kcp_conv_mode: Literal["u32_le_token", "u64_be"] = "u32_le_token"
     kcp_mtu: int = 1400

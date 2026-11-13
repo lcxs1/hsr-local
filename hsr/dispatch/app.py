@@ -23,11 +23,11 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 
 from hsr import compat
-from hsr.dispatch import official
+from hsr.dispatch import gateway_wire, official
 from hsr.dispatch.hotfix import HotfixStore, is_local, localize
 from hsr.dispatch.local_cdn import LocalCdn
 from hsr.game.services import freesr_sync
-from hsr.protocol.gen import StarRail_pb2 as pb
+from hsr.protocol import pb
 
 if TYPE_CHECKING:
     from hsr.runtime import Runtime
@@ -480,6 +480,20 @@ def create_app(rt: Runtime) -> FastAPI:
             return srtools_error(str(exc))
         return with_cors(JSONResponse({"message": "OK", "status": 200, **result.as_dict()}))
 
+    @app.get("/debug/send")
+    async def debug_send(cmd: int, hex: str = ""):
+        """向当前会话注入一帧原始 body（本地调试）。
+
+        用来问客户端「这个 cmd id 注册的是什么消息」：发一段非法 protobuf，
+        客户端解析失败时会在 Player.log 里留下消息类型名。
+        """
+        body = bytes.fromhex(hex)
+        sessions = rt.sessions()
+        if not sessions:
+            return PlainTextResponse("no live session", status_code=404)
+        sessions[-1].send_frame(cmd, body)
+        return PlainTextResponse(f"sent cmd={cmd} body={len(body)}B")
+
     @app.get("/query_dispatch")
     async def query_dispatch():
         return b64_proto(build_dispatch(rt))
@@ -508,6 +522,15 @@ def create_app(rt: Runtime) -> FastAPI:
             )
             if entry is not None and hotfix.save(version, entry):
                 rt.logger.info("hotfix cached for %s: %s", version, entry["asset_bundle_url"])
+        if rt.profile and rt.profile.version == "OSBETAWin4.7.51":
+            # 4.7.51 把 GateServer 字段号整体重排了；pb2 是 4.6.54 快照，只能手写线格式。
+            entry = hotfix.for_version(version)
+            if is_local(entry) and cfg.features.local_cdn:
+                entry = localize(entry, local_cdn_base(cfg))
+            wire = gateway_wire.build_gateway_4751(
+                cfg.server.listen, cfg.server.game_port, entry
+            )
+            return PlainTextResponse(base64.b64encode(wire))
         return b64_proto(build_gateway(rt, hotfix, version))
 
     # ------------------------------------------- local CDN replay (4.7.0 CN)
