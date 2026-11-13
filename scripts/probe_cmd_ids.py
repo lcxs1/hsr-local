@@ -69,10 +69,16 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--ids", required=True, help="e.g. 100-199,700-799")
     ap.add_argument("--hex", default="ff", help="garbage body (default 0xff)")
-    ap.add_argument("--delay", type=float, default=0.4)
-    ap.add_argument("--wait", type=float, default=0.25)
+    ap.add_argument("--delay", type=float, default=0.05, help="pause between probes")
+    ap.add_argument("--wait", type=float, default=0.3, help="max wait for the client to log")
     ap.add_argument("--out", default="logs/probe_ids.json")
     ap.add_argument("--resume", action="store_true")
+    ap.add_argument(
+        "--skip-known",
+        action="store_true",
+        help="skip ids already in proto/4.7.51/CmdId.json (probing a live id such as",
+    )
+    ap.add_argument("--skip", default="", help="extra ids to skip, e.g. 18,96")
     args = ap.parse_args()
 
     out_path = pathlib.Path(args.out)
@@ -80,11 +86,18 @@ def main() -> int:
     if args.resume and out_path.exists():
         table = json.loads(out_path.read_text(encoding="utf-8"))
 
+    known: set[int] = set()
+    if args.skip_known:
+        table_path = pathlib.Path(__file__).resolve().parents[1] / "proto/4.7.51/CmdId.json"
+        if table_path.exists():
+            known = {int(cmd) for cmd in json.loads(table_path.read_text(encoding="utf-8")).values()}
+    skip = {int(item) for item in args.skip.split(",") if item.strip()}
+
     tail = Tail(LOG)
     started = time.time()
     for cmd in parse_ids(args.ids):
         key = str(cmd)
-        if key in table:
+        if key in table or cmd in known or cmd in skip:
             continue
         tail.read()  # drop anything still buffered
         try:
@@ -94,8 +107,18 @@ def main() -> int:
             print(f"send failed for {cmd}: {exc}", file=sys.stderr)
             time.sleep(args.delay)
             continue
-        time.sleep(args.wait)
-        text = tail.read()
+        # Poll rather than sleeping a fixed amount: most ids answer within ~30 ms
+        # and a fixed 250 ms wait dominated the whole sweep.
+        text = ""
+        deadline = time.time() + args.wait
+        while time.time() < deadline:
+            time.sleep(0.03)
+            chunk = tail.read()
+            if chunk:
+                text += chunk
+                time.sleep(0.06)  # the NRE stack follows the deserialize error
+                text += tail.read()
+                break
         handlers = sorted({f"{m.group(1)}{m.group(2)}" for m in HANDLER.finditer(text)})
         proto = [m.group(1) for m in DESERIALIZE.finditer(text)]
         if handlers or proto:

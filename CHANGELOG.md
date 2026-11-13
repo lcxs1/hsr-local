@@ -4,6 +4,16 @@
 
 ## 2026-11-13
 
+- **收工：P0 命令号补齐做到一半 + 交接清单**：探测脚本改成自适应轮询（≈0.2 s/id）并新增
+  `--skip-known` / `--skip`；扫完 `0 300 800 1000 1500 1600 1800 1900 2200 2500 2900 3100 3300`
+  等块，`logs/probe_ids.json` 142 → 194 条；对齐出的 137 个请求名里有 **111 个还缺响应号**，
+  已算好落在 64 个 100 块并写进交接文档。中途因为没加 `--skip-known`，在 `0-99` 块打中
+  心跳回包 id（18）：客户端 `NetworkManager` NRE → 停止心跳 → 15 s 会话超时 → 之后探测全 404；
+  且客户端是提权进程，`Stop-Process`/`taskkill`/`CloseMainWindow` 都无法关闭，只能人工关。
+  剩余工作、续跑命令、坑与 P1–P4 计划全部写进
+  [notes/2026-11-13-4.8协议攻坚与验收 §5](docs/notes/2026-11-13-4.8协议攻坚与验收.md)。
+  依据：`logs/probe_ids.json`、`logs/packets.log` 19:23–19:25 段、`check_proto` 140 条/31 handler/48 skipped。
+
 - **4.7.51 真机验收：换队伍 / 换皮肤 / 进战斗 / 战斗结算全部通过**：18:53 真机会话里两次 `ReplaceLineupCsReq`（换队）、`DressAvatarSkin`/`TakeOffAvatarSkin`（换皮肤）、两场 `StartCocoonStage`+`PVEBattleResultCsReq`（`BATTLE_END_WIN`）全部无异常，整段 `handler .* failed` = 0。根因都是 4.8 字段改名：`LineupSlotData.slot→slot_id`(9→13)、`JoinLineupCsReq.slot→slot_id`(1→15)、`PVEBattleResultScRsp.check_identical→字段11 DLMDAIOKKEO`、`Challenge.star/score_two→stars/score_second`、`ChallengeGroup.taken_stars_count_reward→taken_challenge_reward`、`GetPlayerBoardDataScRsp.current_head_icon_id→head_icon_id`、`GetLineupAvatarDataScRsp.avatar_data_list→lineup_data_list`；全部写进 `proto/4.7.51/field_map.json`（只改名不动号），handler 侧不改。**教训**：空请求演练跑不出这类 bug，改成"填满字段"后 31/31 通过（`scripts/exercise_handlers.py`）。
   依据：`logs/packets.log` 18:53:29–18:57:02 段；[notes/2026-11-13-4.8协议攻坚与验收](docs/notes/2026-11-13-4.8协议攻坚与验收.md) §2。
 - **4.8 命令号反查：79 → 140 条，handler 23 → 31**：新增四个可复用脚本 —— `scripts/probe_cmd_ids.py`（给客户端发非法包体，用 `Deserialize <msg> meet exception` + `_OnXxxScRsp` 栈名反查响应号，≈0.68 s/id）、`scripts/align_login_seq.py`（4.6 登录序列【名字+包长】对齐 4.8 序列【id+包长】，已知 id 当锚点，137 条里 119 条为段长完全相等的高置信配对）、`scripts/merge_cmd_ids.py`（要求 req/rsp 同 100 块双端齐全才入表，已有条目不覆盖）、`scripts/probe_to_cmdid.py`（单次探测结果转表项）。新增条目含 `GetPlayerBoardDataCsReq/ScRsp 2883/2854`、`GetMissionDataCsReq/ScRsp 1283/1254`、`GetMarkItemListCsReq/ScRsp 559/582`、`GetQuestDataCsReq/ScRsp 983/954`、`GetLineupAvatarDataScRsp 743`、`SwitchLineupIndexScRsp 788`、`GetCurBattleInfoCsReq/ScRsp 173/133`、`InteractPropScRsp 1442`、`GetUnlockTeleportScRsp 1466` 等。**教训**：4.8 的 id 与 4.6 无任何算术关系，社区表（HyacineDH / FreeSR）全不对，只能拿客户端当 oracle。
