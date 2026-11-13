@@ -24,8 +24,12 @@
         截图按 -ShotPlan 定时拍，报告按请求计数。
 
 .EXAMPLE
-    # 混沌回忆取证（默认 4.7.0）：脚本起服务端+代理+游戏，UAC 点“是”
+    # 混沌回忆取证（默认 4.7.51）：脚本起服务端+代理+游戏，UAC 点“是”
     powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\game_test.ps1
+
+.EXAMPLE
+    # 直接给客户端版本目录也可以（脚本会归一到上一级，用它找 firefly 代理）
+    powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\game_test.ps1 -GameDir E:\SiFu\HSRSiFu\StarRail_4.7.51
 
 .EXAMPLE
     # 代理/游戏已经自己开好了，只让脚本起服务端并抓证据
@@ -103,6 +107,15 @@ $ClientProfiles = @{
     }
 }
 # 客户端根目录可换（默认 E:\SiFu\HSRSiFu）：exe 和代理都从它推，换机器只改 -GameDir。
+# -GameDir 也可以直接给版本目录（...\HSRSiFu\StarRail_4.7.51），这里会归一到上一级；
+# 代理路径、WorkingDirectory 和 exe 都按归一后的根目录算。
+if (-not $GameExe -and (Split-Path -Leaf $GameDir) -eq $ClientProfiles[$Client].Dir) {
+    $GameDir = Split-Path -Parent $GameDir
+}
+if (-not $GameExe -and (Test-Path (Join-Path $GameDir 'StarRail.exe'))) {
+    # 版本目录名不一定等于 StarRail_<Client>（例如改过名），按“目录里有 StarRail.exe”判断。
+    $GameDir = Split-Path -Parent $GameDir
+}
 if (-not $GameExe) { $GameExe = Join-Path (Join-Path $GameDir $ClientProfiles[$Client].Dir) 'StarRail.exe' }
 if (-not $ProxyExe) { $ProxyExe = Join-Path $GameDir 'firefly-go-proxy.exe' }
 
@@ -422,7 +435,17 @@ if ($runningGame) {
     throw "检测到 StarRail.exe 还在运行 (PID $($runningGame.Id -join ','))：请先完全退出游戏。"
 }
 
+Write-Step "客户端：$GameExe"
+Write-Step "代理：$ProxyExe"
 Write-Step "阶段切换模式 [endgame] advance = $advanceMode；代码 $gitHead"
+
+# 4.7.51 是 4.8 beta，命令表 partial（仍有几十个 handler 缺命令号）：
+# 挑战/Peak 面板可能整块没响应，基础链路（登录/跑图/战斗/结算）先用 -Scenario core。
+$profileToml = Join-Path $Root "versions\$Client.toml"
+if ($Scenario -ne 'core' -and (Test-Path $profileToml) -and
+    (Select-String -Path $profileToml -Pattern '^\s*cmd_table\s*=\s*"partial"' -Quiet)) {
+    Write-Warn2 "profile $Client 是 partial 命令表（部分 handler 缺命令号）：challenge/peak 可能没有响应；先验证基础链路请用 -Scenario core。"
+}
 
 # -LobbyEntry / -LobbyTeleport：临时改 config.toml（跑完还原），用于探针。
 # 注意：config.toml 是 **无 BOM** 的 UTF-8（tomllib 遇到 BOM 会解析失败），
@@ -488,7 +511,13 @@ if ($NoLaunch) {
     Write-Host "    .\firefly-go-proxy.exe -e `"$GameExe`" -p 9978"
 } else {
     if (-not (Test-Path $ProxyExe)) { throw "代理不存在：$ProxyExe（或用 -NoLaunch 手动启动）" }
-    if (-not (Test-Path $GameExe)) { throw "游戏不存在：$GameExe" }
+    if (-not (Test-Path $GameExe)) {
+        $found = @(Get-ChildItem $GameDir -Directory -Filter 'StarRail_*' -ErrorAction SilentlyContinue |
+            Where-Object { Test-Path (Join-Path $_.FullName 'StarRail.exe') } |
+            Select-Object -ExpandProperty Name)
+        $hint = if ($found.Count) { "；$GameDir 下找到：$($found -join ', ')" } else { '' }
+        throw "游戏不存在：$GameExe（-GameDir 可传父目录或版本目录）$hint"
+    }
     Write-Step '启动 firefly 代理 + 游戏（UAC 弹窗请点“是”）。'
     $proxy = Start-Process -FilePath $ProxyExe `
         -ArgumentList @('-e', $GameExe, '-p', '9978') `
