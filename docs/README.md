@@ -96,7 +96,7 @@
 | handler | **88**（4.6.54 全量）/ **31**（4.7.51 partial） | `hsr/game/handlers/*.py` 的 `router.add(...)`；4.7.51 的其余 57 个因缺命令号被跳过 |
 | 单测 | **262** | `.venv\Scripts\python.exe -m unittest discover -s tests` |
 | 4.8 协议快照（4.7.51） | 4,993 消息 / 476 枚举 | `proto/4.7.51/classes.desc`（ppSR 导出） |
-| 4.7.51 命令表 | **140** 条（partial，48 个 handler 待补） | `proto/4.7.51/CmdId.json`，反查方法见 reference/06 §10 |
+| 4.7.51 命令表 | **140** 条（partial，57 个 handler 待补） | `proto/4.7.51/CmdId.json`，反查方法见 reference/06 §10 |
 | freesr 角色/遗器/光锥 | 99 / 418 / 87 | `data/freesr-data.json` |
 | 教程/指南组/子指南 | 1269 / 864 / 1509 | `data/tutorials.json` |
 | 主线/任务/活动 | 2205 / 6018 / 347 | `data/progress.json` |

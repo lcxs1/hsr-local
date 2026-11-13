@@ -36,7 +36,7 @@ Python 写的本地单人《崩坏：星穹铁道》私服，默认目标客户�
 | 异相仲裁（Peak）/ Tierce | 🟡 Peak 9 命令 + 2 通知已实现（离线 bot 全链通过，待真机）；Tierce 未实现 |
 | 掉落 / 背包结算 | ⏸ 按决定不做 |
 | 地图「导航」UI | ⏸ 数据已下发，无法自动验证 |
-| 4.7.51（`OSBETAWin4.7.51`，4.8 beta） | ✅ 真机通过：登录 / 跑图 / 换队伍 / 换皮肤 / 进战斗 / 结算（4.8 描述符快照 + 140 条 cmd 表；48 个 handler 待补 id） |
+| 4.7.51（`OSBETAWin4.7.51`，4.8 beta） | ✅ 真机通过：登录 / 跑图 / 换队伍 / 换皮肤 / 进战斗 / 结算（4.8 描述符快照 + 140 条 cmd 表；57 个 handler 待补 id） |
 
 当前规模：**262 单测 / 88 handler（4.6.54 全量，4.7.51 partial 为 31、57 个缺命令号）**，`scripts\check.ps1` 全绿。
 数字以 [docs/README §3](docs/README.md#3-关键数字唯一事实源) 为准。
@@ -49,7 +49,7 @@ Python 写的本地单人《崩坏：星穹铁道》私服，默认目标客户�
 > **4.7.51 真机通过（2026-11-13）**：客户端是 **4.8 beta**，cmd id 与字段号整体重排。
 > 现在用 `proto/4.7.51/classes.desc`（4,993 消息）+ `field_map.json`（字段改名适配）+
 > **140 条 cmd 表**（`cmd_table = "partial"`）跑通登录 / 跑图 / 换队伍 / 换皮肤 / 进战斗 / 结算；
-> 进游戏加载从 13 s 降到 4.7 s。还没补的 48 个 handler 会在客户端请求时记 `UNKNOWN_<id>`，
+> 进游戏加载从 13 s 降到 4.7 s。还没补的 57 个 handler 会在客户端请求时记 `UNKNOWN_<id>`，
 > 反查命令号的方法与教训见
 > [docs/reference/06-4.7.51接入](docs/reference/06-4.7.51接入.md) §10/§11 与
 > [docs/notes/2026-11-13-4.8协议攻坚与验收](docs/notes/2026-11-13-4.8协议攻坚与验收.md)。
@@ -59,19 +59,21 @@ Python 写的本地单人《崩坏：星穹铁道》私服，默认目标客户�
 | 项 | 要求 |
 |---|---|
 | 系统 | Windows 10/11（`run.ps1` / 真机脚本按 Windows 写；服务端代码本身不依赖 Windows） |
-| Python | **3.13+**（本仓库在 3.14 上跑通 250 单测） |
+| Python | **3.13+**（本仓库在 3.14 上跑通 262 单测） |
 | 客户端 | 4.7.51（`OSBETAWin4.7.51`，默认）、4.6.54（`OSBETAWin4.6.54`）或 4.7.0 CN（`CNPRODWin4.7.0`） |
 | 代理 | 能把登录域名转到 `127.0.0.1:21000` 的 HTTPS 代理（例如 firefly-go-proxy） |
 
 ## 快速开始
 
 ```powershell
-git clone https://github.com/<your-account>/hsr-local.git
+git clone https://github.com/lcxs1/hsr-local.git
 cd hsr-local
 
 py -3.13 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -U pip
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+# 也可以（本机没有 3.13/3.14 时）：uv venv .venv --python 3.14
+#   uv pip install --python .venv\Scripts\python.exe -r requirements.txt
 
 # 1) 启动服务端
 .\run.ps1                 # 或 .\run.bat / .\.venv\Scripts\python.exe -m hsr
@@ -104,7 +106,7 @@ Start-Process "$Client\firefly-go-proxy.exe" -ArgumentList `
 ## 常用命令
 
 ```powershell
-# 全量回归：244 单测 + 离线核心链 + 挑战上下半链 + proto 检查 + ruff + 文档检查
+# 全量回归：262 单测 + 离线核心链 + 挑战上下半链 + proto 检查 + ruff + 文档检查
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\check.ps1
 
 # 真机测试：起服务端/代理/游戏、截图、出报告
