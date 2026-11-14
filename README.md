@@ -1,5 +1,11 @@
 # hsr-local
 
+> **状态：已归档（2026-11-14）** —— 项目已停止开发并冻结，不再接受 issue / PR。
+> 为什么停、最终做到哪、没做完什么、怎么重新跑起来，见
+> [docs/archive/00-项目归档说明](docs/archive/00-项目归档说明.md)。
+> 归档时只做了文档整理和一处配置默认值修正（`[features].local_cdn` 改回 `false`，让
+> `check.ps1` 开箱可跑），业务代码保持 2026-11-13 收工状态。
+
 Python 写的本地单人《崩坏：星穹铁道》私服，默认目标客户端 **4.7.51**（`OSBETAWin4.7.51`，build
 `17100438`），同时保留 **4.6.54**（`OSBETAWin4.6.54`，build `16927089`）与 **4.7.0 CN**
 （`CNPRODWin4.7.0`，build `17108910`）两个 profile。纯 Python UDP+KCP 直连，不使用 TCP shim、
@@ -16,7 +22,7 @@ Python 写的本地单人《崩坏：星穹铁道》私服，默认目标客户�
 >
 > **变更日志**：[CHANGELOG.md](CHANGELOG.md) —— 每次合入一行，不写进 docs。
 
-## 当前状态（2026-11-13）
+## 最终状态（2026-11-13 收工）
 
 | 模块 | 状态 |
 |---|---|
@@ -159,6 +165,7 @@ logs/           运行时日志（不入库）
 
 | 文档 | 内容 |
 |---|---|
+| [archive/00-项目归档说明](docs/archive/00-项目归档说明.md) | **归档总结**：为什么停、最终能力、没做完的事、最小复现、时间线 |
 | [docs/README.md](docs/README.md) | 文档索引、阅读路径、关键数字、维护约定 |
 | [guide/01-运行与配置](docs/guide/01-运行与配置.md) | 启动链路、config 全表、数据/存档、改哪里 |
 | [guide/02-测试与回归](docs/guide/02-测试与回归.md) | `game_test.ps1`、手动测试、报告解读 |
@@ -191,6 +198,8 @@ logs/           运行时日志（不入库）
 完整清单见 [docs/guide/03-交接与排障.md](docs/guide/03-交接与排障.md) §4。
 
 ## 参与
+
+> 项目已归档，不再接受 PR / issue；下面的约定只留作记录。
 
 - 提交前跑 `scripts\check.ps1`（单测 + proto + 回放 + 文档 + ruff）。
 - 文档里的 handler/单测/数据条数只在 [docs/README §3](docs/README.md#3-关键数字唯一事实源) 维护。

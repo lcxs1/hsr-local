@@ -2,6 +2,11 @@
 
 一行一条：日期 / 改了什么 / 为什么。原理、协议、数据细节写进 `docs/`，这里只记“什么时候动过什么”。
 
+## 2026-11-14
+
+- **修 `config.toml` 开箱即红**：仓库里的 `[features].local_cdn` 是 `true`，但 `[paths].client_dir` 为空（11-12 发布前清空 client_dir 时漏了这行），`run` / `replay_flows.py` 直接 `ConfigError: features.local_cdn=true 但 [paths].client_dir 为空`，`check.ps1` 跑不到底。改成默认 `false`，与 [guide/01](docs/guide/01-运行与配置.md) 的默认值表一致；4.7.0 / 4.7.51 真机前再显式开启并填 `client_dir`。依据：归档整理时跑 `check.ps1` 复现（262 单测 OK，`replay` 报错），修后全绿。
+- **归档**：项目停止开发并归档（GitHub 仓库转只读）。新增 [docs/archive/00-项目归档说明](docs/archive/00-项目归档说明.md)：停止原因（4.8 beta 还剩 57 个 handler 命令号要人工反查、MOC 下半黑屏已排掉 9 类原因、版本升级是重复劳动）、最终能力表、10 项未完成项及其已验证线索、最小复现、时间线、取消归档后的恢复步骤、本机路径说明；根 README / `docs/README` / `guide/03` 加归档状态横幅，`docs/README` 的维护约定标注冻结。**服务端代码未改**（只动 `config.toml` 默认值与文档）。依据：作者决定弃置；归档前只做文档整理，未再跑真机。
+
 ## 2026-11-13
 
 - **环境与文档收口**：`.venv` 重建为 Python 3.14.10（旧 venv 的 base 解释器已被卸载，`run.ps1` / `check.ps1` 都起不来）；补装 ruff 并修掉 4 条 lint（`router`/`dynpb` 的 import 排序、`dynpb` 重复 import、`bot.__enter__` 的引号注解）；文档数字统一为 **262 单测 / 88 handler / 140 条 cmd 表 / 57 个待补命令号**，4.7.51 从「首登真机待验证」改为真机已通过（登录 / 跑图 / 换队 / 换皮肤 / 战斗 / 结算）；README 的 clone 地址改为 `lcxs1/hsr-local`。依据：重建后 `check.ps1` 全绿（262 单测 + 两组 bot e2e + proto/replay/docs/ruff）。

@@ -146,9 +146,10 @@ send_hotfix = true
 # 本地 CDN 回放：hotfix 里带 LOCAL_CDN 前缀的条目换成 http://127.0.0.1:21000/cdn，
 # 按文件名回放客户端自己安装里的资源（4.7.0 实测路径，docs/reference/05 §3）。
 # 只影响带 LOCAL_CDN 的版本条目；4.6.54 仍走真实 CDN。
+# 默认 false：开箱即可跑 check.ps1 / 回放（client_dir 留空时也不会报错）。
 # 4.7.0 CN / 4.7.51 真机前改成 true，并填好上面的 paths.client_dir。
-# 2026-11-13 实测：4.7.51 beta 的官方 CDN 已下线（M_ArchiveV 404），必须走本地回放。
-local_cdn = true
+# 2026-11-13 实测：4.7.51 beta 的官方 CDN 已下线（M_ArchiveV 404），真机必须走本地回放。
+local_cdn = false
 # 缺 hotfix 条目时向官方网关取一次（默认关闭；这是唯一主动联网的路径）。
 # 开启前请先读 docs/guide/01 的说明；结果会缓存进 data/hotfix.json。
 hotfix_auto = false
